@@ -56,6 +56,10 @@ juce::dsp::Convolution is non-uniform partitioned. The v2 "reverb" may
 simply be a SECOND IR slot chained after the cab slot (real spaces, no
 algorithmic reverb to write). Observed cost: ~25% of a 64-sample block for
 a multi-second IR; watch for partition-boundary xrun spikes at quantum 64.
+Second field note: amateur reverb IRs often carry a high noise floor
+(~-44 dB observed) that plateaus/swells late in the tail and ends in an
+abrupt cut — faithfully reproduced, sounds like a bug but isn't. v2 IR
+loader should offer an optional tail fade to tame such files.
 
 ## Milestones
 
