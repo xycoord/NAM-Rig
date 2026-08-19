@@ -51,6 +51,12 @@ directory-style models, web-link buttons.
 v2 horizon, rough order: reverb, tuner, backing-track player (standalone),
 gate + EQ return, gain-compensation policy, metronome.
 
+Field note (M2): long reverb IRs already work through the IR slot —
+juce::dsp::Convolution is non-uniform partitioned. The v2 "reverb" may
+simply be a SECOND IR slot chained after the cab slot (real spaces, no
+algorithmic reverb to write). Observed cost: ~25% of a 64-sample block for
+a multi-second IR; watch for partition-boundary xrun spikes at quantum 64.
+
 ## Milestones
 
 1. **Bootstrap** — DONE (commit a073e4c). Standalone shell, JACK at 64/48k,
