@@ -1,0 +1,42 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libasound2-dev libfreetype-dev libfontconfig-dev \
+            libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
+            libxinerama-dev libxcomposite-dev libcurl4-openssl-dev \
+            ninja-build
+
+      - name: Configure
+        run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: namrig-linux
+          path: build/NamRig_artefacts/Release/Standalone/
+
+  # Windows and macOS join in milestone 5 alongside the plugin formats.

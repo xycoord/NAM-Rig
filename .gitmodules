@@ -1,0 +1,15 @@
+[submodule "libs/JUCE"]
+	path = libs/JUCE
+	url = https://github.com/juce-framework/JUCE.git
+[submodule "libs/clap-juce-extensions"]
+	path = libs/clap-juce-extensions
+	url = https://github.com/free-audio/clap-juce-extensions.git
+[submodule "libs/NeuralAmpModelerCore"]
+	path = libs/NeuralAmpModelerCore
+	url = https://github.com/sdatkinson/NeuralAmpModelerCore.git
+[submodule "libs/AudioDSPTools"]
+	path = libs/AudioDSPTools
+	url = https://github.com/sdatkinson/AudioDSPTools.git
+[submodule "libs/eigen"]
+	path = libs/eigen
+	url = https://gitlab.com/libeigen/eigen.git
