@@ -26,6 +26,8 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add(std::make_unique<AudioParameterChoice>(
         param_ids::outputMode, "Output Mode", StringArray{"Raw", "Normalized"}, 1));
 
+    layout.add(std::make_unique<AudioParameterBool>(param_ids::irEnabled, "IR", true));
+
     return layout;
 }
 

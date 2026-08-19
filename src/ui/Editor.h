@@ -22,6 +22,7 @@ public:
 private:
     void timerCallback() override; // poll model status for the label
     void chooseModel();
+    void chooseIr();
 
     Processor& processor;
 
@@ -34,6 +35,13 @@ private:
     juce::TextButton loadModelButton{"Load model..."};
     juce::TextButton clearModelButton{"Clear"};
     juce::Label modelStatusLabel;
+
+    juce::TextButton loadIrButton{"Load IR..."};
+    juce::TextButton clearIrButton{"Clear"};
+    juce::ToggleButton irToggle{"IR"};
+    juce::Label irStatusLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> irToggleAttachment;
+
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     // Standalone only: opens the audio device settings.

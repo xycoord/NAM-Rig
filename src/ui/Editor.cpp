@@ -51,6 +51,20 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     modelStatusLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(modelStatusLabel);
 
+    loadIrButton.onClick = [this] { chooseIr(); };
+    addAndMakeVisible(loadIrButton);
+
+    clearIrButton.onClick = [this] { processor.clearIr(); };
+    addAndMakeVisible(clearIrButton);
+
+    irToggleAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
+        state, state::param_ids::irEnabled.getParamID(), irToggle);
+    addAndMakeVisible(irToggle);
+
+    irStatusLabel.setJustificationType(juce::Justification::centredLeft);
+    irStatusLabel.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(irStatusLabel);
+
     if (juce::JUCEApplicationBase::isStandaloneApp())
     {
         settingsButton.onClick = [] {
@@ -96,6 +110,19 @@ void Editor::timerCallback()
     }
 
     clearModelButton.setEnabled(info.loaded);
+
+    if (processor.isIrLoaded())
+    {
+        irStatusLabel.setColour(juce::Label::textColourId, kText);
+        irStatusLabel.setText(juce::File(processor.getIrPath()).getFileName(),
+                              juce::dontSendNotification);
+    }
+    else
+    {
+        irStatusLabel.setColour(juce::Label::textColourId, kDim);
+        irStatusLabel.setText("No IR loaded", juce::dontSendNotification);
+    }
+    clearIrButton.setEnabled(processor.isIrLoaded());
 }
 
 void Editor::chooseModel()
@@ -113,6 +140,20 @@ void Editor::chooseModel()
                              });
 }
 
+void Editor::chooseIr()
+{
+    fileChooser = std::make_unique<juce::FileChooser>("Load impulse response", juce::File{},
+                                                      "*.wav;*.aif;*.aiff;*.flac");
+
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                                 | juce::FileBrowserComponent::canSelectFiles,
+                             [this](const juce::FileChooser& fc) {
+                                 const auto file = fc.getResult();
+                                 if (file.existsAsFile())
+                                     processor.loadIr(file);
+                             });
+}
+
 void Editor::paint(juce::Graphics& g)
 {
     g.fillAll(kBackground);
@@ -122,18 +163,28 @@ void Editor::resized()
 {
     auto area = getLocalBounds().reduced(20);
 
-    // Bottom bar: load / clear / status / settings.
-    auto bottomBar = area.removeFromBottom(28);
-    loadModelButton.setBounds(bottomBar.removeFromLeft(110));
-    bottomBar.removeFromLeft(8);
-    clearModelButton.setBounds(bottomBar.removeFromLeft(60));
-    bottomBar.removeFromLeft(12);
+    // Bottom bars: IR row above model row (both interim until milestone 4).
+    auto irBar = area.removeFromBottom(28);
+    loadIrButton.setBounds(irBar.removeFromLeft(110));
+    irBar.removeFromLeft(8);
+    clearIrButton.setBounds(irBar.removeFromLeft(60));
+    irBar.removeFromLeft(12);
+    irToggle.setBounds(irBar.removeFromLeft(60));
+    irBar.removeFromLeft(12);
+    irStatusLabel.setBounds(irBar);
+    area.removeFromBottom(8);
+
+    auto modelBar = area.removeFromBottom(28);
+    loadModelButton.setBounds(modelBar.removeFromLeft(110));
+    modelBar.removeFromLeft(8);
+    clearModelButton.setBounds(modelBar.removeFromLeft(60));
+    modelBar.removeFromLeft(12);
     if (settingsButton.isVisible())
     {
-        settingsButton.setBounds(bottomBar.removeFromRight(120));
-        bottomBar.removeFromRight(12);
+        settingsButton.setBounds(modelBar.removeFromRight(120));
+        modelBar.removeFromRight(12);
     }
-    modelStatusLabel.setBounds(bottomBar);
+    modelStatusLabel.setBounds(modelBar);
     area.removeFromBottom(12);
 
     using Fb = juce::FlexBox;

@@ -16,6 +16,8 @@ inline const juce::ParameterID outputGain{"output_gain", 1};
 inline const juce::ParameterID slim{"slim", 1};
 // 0 = Raw, 1 = Normalized (level-match models via loudness metadata).
 inline const juce::ParameterID outputMode{"output_mode", 1};
+// IR convolution on/off (IR stays loaded while bypassed).
+inline const juce::ParameterID irEnabled{"ir_enabled", 1};
 } // namespace param_ids
 
 // Version stamped into every saved state blob from day one, so future

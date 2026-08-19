@@ -24,6 +24,7 @@ Processor::Processor()
     outputGainDb = state.getRawParameterValue(state::param_ids::outputGain.getParamID());
     slimParam = state.getRawParameterValue(state::param_ids::slim.getParamID());
     outputModeParam = state.getRawParameterValue(state::param_ids::outputMode.getParamID());
+    irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
 
     // Development convenience until the file browser exists (milestone 4):
     // NAMRIG_MODEL=/path/to/model.nam. The loader parks the request until
@@ -43,8 +44,13 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
 {
     preparedBlockSize = maximumExpectedSamplesPerBlock;
     monoBuffer.assign(static_cast<size_t>(preparedBlockSize), 0.0f);
+    dryBuffer.assign(static_cast<size_t>(preparedBlockSize), 0.0f);
 
     engine.prepare(sampleRate, preparedBlockSize);
+
+    convolution.prepare({sampleRate, static_cast<juce::uint32>(preparedBlockSize), 1});
+    irMix.reset(sampleRate, 0.02);
+    irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
 
     const double rampSeconds = 0.02;
     inputGain.reset(sampleRate, rampSeconds);
@@ -99,6 +105,33 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
 
         engine.process(monoBuffer.data(), n);
 
+        // IR stage: convolve, then smoothed wet/dry per the toggle. The
+        // convolution must keep running while bypassed so its state is warm
+        // when the toggle returns (and load swaps stay seamless).
+        irMix.setTargetValue(
+            (irEnabledParam->load() >= 0.5f && irLoaded.load(std::memory_order_relaxed))
+                ? 1.0f
+                : 0.0f);
+        if (irLoaded.load(std::memory_order_relaxed))
+        {
+            std::memcpy(dryBuffer.data(), monoBuffer.data(), sizeof(float) * static_cast<size_t>(n));
+            float* channel[1] = {monoBuffer.data()};
+            juce::dsp::AudioBlock<float> block{channel, 1, static_cast<size_t>(n)};
+            juce::dsp::ProcessContextReplacing<float> ctx{block};
+            convolution.process(ctx);
+            for (int s2 = 0; s2 < n; ++s2)
+            {
+                const float mix = irMix.getNextValue();
+                monoBuffer[static_cast<size_t>(s2)] =
+                    mix * monoBuffer[static_cast<size_t>(s2)]
+                    + (1.0f - mix) * dryBuffer[static_cast<size_t>(s2)];
+            }
+        }
+        else
+        {
+            irMix.skip(n); // keep the smoother in real time
+        }
+
         // Broadcast with smoothed output gain.
         for (int s = 0; s < n; ++s)
         {
@@ -134,6 +167,25 @@ void Processor::timerCallback()
     }
 }
 
+void Processor::loadIr(const juce::File& file)
+{
+    // Convolution parses and resamples on its internal background thread,
+    // then swaps lock-free. Mono, whole length, normalised — the usual cab
+    // IR treatment.
+    convolution.loadImpulseResponse(file, juce::dsp::Convolution::Stereo::no,
+                                    juce::dsp::Convolution::Trim::no, 0,
+                                    juce::dsp::Convolution::Normalise::yes);
+    irPath = file.getFullPathName();
+    irLoaded.store(true, std::memory_order_relaxed);
+}
+
+void Processor::clearIr()
+{
+    irLoaded.store(false, std::memory_order_relaxed);
+    irPath.clear();
+    // No unload API; the loaded IR just stops being mixed in (mix -> dry).
+}
+
 juce::AudioProcessorEditor* Processor::createEditor()
 {
     return new Editor(*this);
@@ -143,6 +195,9 @@ void Processor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto tree = state.copyState();
     tree.setProperty("stateVersion", state::kStateVersion, nullptr);
+    // Interim path recall (portable path storage is milestone 3).
+    tree.setProperty("modelPath", juce::String(engine.models().info().path), nullptr);
+    tree.setProperty("irPath", irPath, nullptr);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -150,8 +205,22 @@ void Processor::getStateInformation(juce::MemoryBlock& destData)
 void Processor::setStateInformation(const void* data, int sizeInBytes)
 {
     if (auto xml = getXmlFromBinary(data, sizeInBytes))
+    {
         if (xml->hasTagName(state.state.getType()))
-            state.replaceState(juce::ValueTree::fromXml(*xml));
+        {
+            auto tree = juce::ValueTree::fromXml(*xml);
+
+            const juce::String modelPath = tree.getProperty("modelPath", {});
+            if (modelPath.isNotEmpty())
+                engine.models().requestLoad(modelPath.toStdString());
+
+            const juce::String savedIrPath = tree.getProperty("irPath", {});
+            if (savedIrPath.isNotEmpty() && juce::File(savedIrPath).existsAsFile())
+                loadIr(juce::File(savedIrPath));
+
+            state.replaceState(tree);
+        }
+    }
 }
 
 } // namespace namrig

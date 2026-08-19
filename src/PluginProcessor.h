@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
+#include <juce_dsp/juce_dsp.h>
 
 #include "engine/Engine.h"
 #include "state/Parameters.h"
@@ -48,6 +49,13 @@ public:
     juce::AudioProcessorValueTreeState& getState() { return state; }
     engine::Engine& getEngine() { return engine; }
 
+    // IR management (message thread). juce::dsp::Convolution loads on its
+    // own background thread and swaps lock-free under a running process().
+    void loadIr(const juce::File& file);
+    void clearIr();
+    juce::String getIrPath() const { return irPath; }
+    bool isIrLoaded() const { return irLoaded.load(std::memory_order_relaxed); }
+
 private:
     void timerCallback() override; // message thread
 
@@ -67,7 +75,15 @@ private:
     // Rule: every gain is smoothed.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain;
 
-    std::vector<float> monoBuffer; // sized in prepareToPlay
+    // IR stage. The toggle is a smoothed wet/dry crossfade, not a hard
+    // switch — no click on bypass.
+    juce::dsp::Convolution convolution;
+    std::atomic<float>* irEnabledParam = nullptr;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> irMix;
+    juce::String irPath;
+    std::atomic<bool> irLoaded{false};
+
+    std::vector<float> monoBuffer, dryBuffer; // sized in prepareToPlay
     int preparedBlockSize = 0;
 
     float lastForwardedSlim = -1.0f; // timer-side cache
