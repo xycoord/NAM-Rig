@@ -9,6 +9,47 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Milestone 1: standalone only. CLAP + VST3 targets arrive in milestone 5.
 add_subdirectory(libs/JUCE)
 
+# ---- Vendored DSP (framework-free) -----------------------------------------
+# The NAM core has no embeddable CMake target of its own; we compile its
+# sources into a static lib (the LV2 plugin does the same). Float samples
+# throughout to match JUCE's buffers.
+
+set(NAM_CORE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/NeuralAmpModelerCore)
+set(ADT_DIR ${CMAKE_CURRENT_SOURCE_DIR}/libs/AudioDSPTools)
+
+file(GLOB NAM_CORE_SOURCES
+    ${NAM_CORE_DIR}/NAM/*.cpp
+    ${NAM_CORE_DIR}/NAM/wavenet/*.cpp)
+
+add_library(nam_core OBJECT ${NAM_CORE_SOURCES})
+target_include_directories(nam_core SYSTEM PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/libs/eigen
+    ${NAM_CORE_DIR}/Dependencies/nlohmann
+    ${NAM_CORE_DIR})
+target_compile_definitions(nam_core PUBLIC
+    NAM_SAMPLE_FLOAT
+    NAM_ENABLE_A2_FAST)
+
+# Note: ImpulseResponse.cpp/wav.cpp are NOT compiled — they hardcode double
+# and break with DSP_SAMPLE=float. IR convolution uses juce::dsp::Convolution
+# instead (docs/plan.md watchlist).
+add_library(adt OBJECT
+    ${ADT_DIR}/dsp/dsp.cpp
+    ${ADT_DIR}/dsp/RecursiveLinearFilter.cpp)
+target_include_directories(adt SYSTEM PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/libs/eigen
+    ${ADT_DIR})
+target_compile_definitions(adt PUBLIC DSP_SAMPLE_FLOAT)
+
+# ---- Engine (no JUCE anywhere) ----------------------------------------------
+add_library(namrig_engine STATIC
+    src/engine/Architectures.cpp
+    src/engine/ResamplingNam.cpp
+    src/engine/ModelSlot.cpp
+    src/engine/Engine.cpp)
+target_include_directories(namrig_engine PUBLIC src)
+target_link_libraries(namrig_engine PUBLIC nam_core adt)
+
 juce_add_plugin(NamRig
     COMPANY_NAME "xycoord"
     PRODUCT_NAME "NAM Rig"
@@ -42,7 +83,18 @@ target_compile_definitions(NamRig PUBLIC
     # input unmuted by default.
     JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)
 
+# nam_core/adt are OBJECT libs: their objects (and the static initializers
+# that register model architectures) only reach DIRECT consumers, so the
+# final targets must link them explicitly alongside namrig_engine.
+# PUBLIC so the OBJECT libraries' objects (and their architecture-registry
+# static initializers) reach every final binary: the standalone now, the
+# VST3/CLAP targets in milestone 5. PRIVATE would strand them in the
+# shared-code static lib, where the linker drops them.
 target_link_libraries(NamRig
+    PUBLIC
+        namrig_engine
+        nam_core
+        adt
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp
@@ -65,7 +117,9 @@ if(NAMRIG_BUILD_TESTS)
     add_executable(namrig_tests
         tests/engine_tests.cpp)
     target_include_directories(namrig_tests PRIVATE src)
-    target_link_libraries(namrig_tests PRIVATE Catch2::Catch2WithMain)
+    target_link_libraries(namrig_tests PRIVATE namrig_engine nam_core adt Catch2::Catch2WithMain)
+    target_compile_definitions(namrig_tests PRIVATE
+        NAMRIG_TEST_MODELS_DIR="${NAM_CORE_DIR}/example_models")
 
     enable_testing()
     add_test(NAME namrig_tests COMMAND namrig_tests)

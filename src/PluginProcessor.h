@@ -3,22 +3,28 @@
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_utils/juce_audio_utils.h>
 
+#include "engine/Engine.h"
 #include "state/Parameters.h"
 
 namespace namrig
 {
 
-// Milestone 1: passthrough with smoothed input/output gain.
-// The NAM engine slots in between the two gains in milestone 2.
-class Processor final : public juce::AudioProcessor
+// JUCE shell around engine::Engine. Owns the gains (SmoothedValues), the
+// mono mixdown/broadcast, and the message-thread duties the engine can't do
+// itself: latency reporting to the host, output-mode normalization, and
+// forwarding the Quality (slim) parameter — all via a 10 Hz timer, never
+// from the audio thread (CLAUDE.md rules 3 & 4).
+class Processor final : public juce::AudioProcessor, private juce::Timer
 {
 public:
     Processor();
+    ~Processor() override;
 
     // AudioProcessor
     void prepareToPlay(double sampleRate, int maximumExpectedSamplesPerBlock) override;
     void releaseResources() override {}
     void processBlock(juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    using AudioProcessor::processBlock; // don't hide the double overload
     bool isBusesLayoutSupported(const BusesLayout&) const override;
 
     juce::AudioProcessorEditor* createEditor() override;
@@ -27,31 +33,44 @@ public:
     const juce::String getName() const override { return "NAM Rig"; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
-    double getTailLengthSeconds() const override { return 0.0; }
+    // DC blocker decay: 10 cycles at 5 Hz, matching the old plugin's tail.
+    double getTailLengthSeconds() const override { return 2.0; }
 
-    // Programs: JUCE requires at least one.
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram(int) override {}
     const juce::String getProgramName(int) override { return {}; }
     void changeProgramName(int, const juce::String&) override {}
 
-    // State (milestone 3 replaces this with the versioned serializer;
-    // the version field is present from the very first blob).
     void getStateInformation(juce::MemoryBlock& destData) override;
     void setStateInformation(const void* data, int sizeInBytes) override;
 
     juce::AudioProcessorValueTreeState& getState() { return state; }
+    engine::Engine& getEngine() { return engine; }
 
 private:
+    void timerCallback() override; // message thread
+
     juce::AudioProcessorValueTreeState state;
+    engine::Engine engine;
 
     // Raw parameter pointers (atomic reads on the audio thread).
     std::atomic<float>* inputGainDb = nullptr;
     std::atomic<float>* outputGainDb = nullptr;
+    std::atomic<float>* slimParam = nullptr;
+    std::atomic<float>* outputModeParam = nullptr;
 
-    // Rule: every gain is smoothed. 20 ms linear ramp.
+    // Output-mode offset, computed on the message thread from model
+    // metadata, folded into the smoothed output gain on the audio thread.
+    std::atomic<float> normalizationOffsetDb{0.0f};
+
+    // Rule: every gain is smoothed.
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain;
+
+    std::vector<float> monoBuffer; // sized in prepareToPlay
+    int preparedBlockSize = 0;
+
+    float lastForwardedSlim = -1.0f; // timer-side cache
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Processor)
 };
