@@ -456,6 +456,37 @@ void Processor::clearIr()
     resolveTopology();
 }
 
+void Processor::capturePresetSnapshot(const juce::String& pendingModelPath)
+{
+    presetSnapshot.valid = true;
+    presetSnapshot.modelPath = pendingModelPath;
+    presetSnapshot.irPath = irPath;
+    presetSnapshot.drive = driveDb->load();
+    presetSnapshot.quality = slimParam->load();
+    presetSnapshot.irEnabled = irEnabledParam->load() >= 0.5f;
+    presetSnapshot.stereoMode = static_cast<int>(stereoIrModeParam->load());
+}
+
+bool Processor::isPresetDirty() const
+{
+    if (!presetSnapshot.valid || currentPresetName.isEmpty())
+        return false;
+    const auto info = engine.models().info();
+    if (juce::String{info.path} != presetSnapshot.modelPath)
+        return true;
+    if (irPath != presetSnapshot.irPath)
+        return true;
+    if (std::abs(driveDb->load() - presetSnapshot.drive) > 0.05f)
+        return true;
+    if (std::abs(slimParam->load() - presetSnapshot.quality) > 1.0e-3f)
+        return true;
+    if ((irEnabledParam->load() >= 0.5f) != presetSnapshot.irEnabled)
+        return true;
+    if (static_cast<int>(stereoIrModeParam->load()) != presetSnapshot.stereoMode)
+        return true;
+    return false;
+}
+
 void Processor::setParamFromPreset(const juce::ParameterID& id, const float naturalValue)
 {
     if (auto* param = state.getParameter(id.getParamID()))
@@ -491,6 +522,7 @@ bool Processor::savePreset(const juce::String& name)
     if (!file.replaceWithText(juce::JSON::toString(juce::var{obj}, false)))
         return false;
     currentPresetName = name;
+    capturePresetSnapshot(juce::String{info.path});
     return true;
 }
 
@@ -502,12 +534,16 @@ bool Processor::loadPreset(const juce::String& name)
     if (obj == nullptr)
         return false;
 
+    juce::String pendingModelPath;
     if (obj->hasProperty("model") && obj->getProperty("model").getDynamicObject() != nullptr)
     {
         const auto resolved =
             library.resolveModelPath(state::Library::fromVar(obj->getProperty("model")));
         if (resolved != juce::File{})
-            engine.models().requestLoad(resolved.getFullPathName().toStdString());
+        {
+            pendingModelPath = resolved.getFullPathName();
+            engine.models().requestLoad(pendingModelPath.toStdString());
+        }
         // Unresolvable model: keep whatever is playing; the engine's error
         // surface stays quiet, but the model name won't change — visible.
     }
@@ -535,6 +571,7 @@ bool Processor::loadPreset(const juce::String& name)
     }
 
     currentPresetName = name;
+    capturePresetSnapshot(pendingModelPath);
     return true;
 }
 

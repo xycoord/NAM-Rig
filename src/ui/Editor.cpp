@@ -435,6 +435,16 @@ void Editor::timerCallback()
     else
         normStatusLabel.setText({}, juce::dontSendNotification);
 
+    // Diverged-from-preset marker.
+    {
+        const auto current = processor.getCurrentPresetName();
+        const auto shown = current.isEmpty()
+                               ? juce::String{"Presets"}
+                               : current + (processor.isPresetDirty() ? " *" : "");
+        if (presetBox.getTextWhenNothingSelected() != shown)
+            presetBox.setTextWhenNothingSelected(shown);
+    }
+
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
     channelsBox.changeItemText(
         1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
@@ -625,14 +635,14 @@ void Editor::resized()
     sections[2] = {irArea, "CAB / IR"};
     sections[3] = {outArea, "OUT"};
 
-    const int header = 24;
+    const int header = 20;
 
-    outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8));
+    outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8, 5));
 
     // INPUT: slim meter fused to the trim fader, centred as one unit;
     // channels below.
     {
-        auto r = inputArea.withTrimmedTop(header).reduced(8);
+        auto r = inputArea.withTrimmedTop(header).reduced(8, 5);
         channelsBox.setBounds(r.removeFromBottom(22));
         channelsCaption.setBounds(r.removeFromBottom(16));
         r.removeFromBottom(6);
@@ -646,7 +656,7 @@ void Editor::resized()
 
     // AMP: selector row, status line, drive knob, quality.
     {
-        auto r = ampArea.withTrimmedTop(header).reduced(10);
+        auto r = ampArea.withTrimmedTop(header).reduced(10, 6);
         modelRow.layout(r.removeFromTop(26));
         r.removeFromTop(4);
         normStatusLabel.setBounds(r.removeFromTop(16));
@@ -663,7 +673,7 @@ void Editor::resized()
 
     // CAB / IR: selector row, then toggles.
     {
-        auto r = irArea.withTrimmedTop(header).reduced(10);
+        auto r = irArea.withTrimmedTop(header).reduced(10, 6);
         irRow.layout(r.removeFromTop(26));
         r.removeFromTop(8);
         auto toggles = r.removeFromTop(24);

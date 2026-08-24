@@ -70,6 +70,8 @@ public:
     bool loadPreset(const juce::String& name); // false = file/parse failure
     void deletePreset(const juce::String& name);
     juce::String getCurrentPresetName() const { return currentPresetName; }
+    // True when the current sound diverges from the loaded preset.
+    bool isPresetDirty() const;
 
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
     juce::String topologyDescription() const;
@@ -121,6 +123,17 @@ private:
     engine::Engine engine;
     state::Library library;
     juce::String currentPresetName;
+
+    // Snapshot of the sound at last preset load/save, for divergence checks.
+    struct PresetSnapshot
+    {
+        bool valid = false;
+        juce::String modelPath, irPath;
+        float drive = 0, quality = 0;
+        bool irEnabled = true;
+        int stereoMode = 0;
+    } presetSnapshot;
+    void capturePresetSnapshot(const juce::String& pendingModelPath);
 
     void setParamFromPreset(const juce::ParameterID& id, float naturalValue);
 
