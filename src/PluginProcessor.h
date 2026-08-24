@@ -68,6 +68,7 @@ public:
     state::Library& getLibrary() { return library; }
     bool savePreset(const juce::String& name);
     bool loadPreset(const juce::String& name); // false = file/parse failure
+    void deletePreset(const juce::String& name);
     juce::String getCurrentPresetName() const { return currentPresetName; }
 
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.

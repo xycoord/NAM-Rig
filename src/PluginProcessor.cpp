@@ -530,6 +530,13 @@ bool Processor::loadPreset(const juce::String& name)
     return true;
 }
 
+void Processor::deletePreset(const juce::String& name)
+{
+    library.presetFile(name).deleteFile();
+    if (currentPresetName == name)
+        currentPresetName.clear();
+}
+
 juce::AudioProcessorEditor* Processor::createEditor()
 {
     return new Editor(*this);

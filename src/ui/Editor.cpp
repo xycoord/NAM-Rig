@@ -113,6 +113,34 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     savePresetButton.onClick = [this] { promptSavePreset(); };
     addAndMakeVisible(savePresetButton);
 
+    // Delete with an inline two-step confirm (no dialogs): arm, then confirm.
+    deletePresetButton.onClick = [this] {
+        const auto name = presetBox.getText();
+        if (name.isEmpty())
+            return;
+        if (!deleteArmed)
+        {
+            deleteArmed = true;
+            deletePresetButton.setButtonText("Sure?");
+            juce::Timer::callAfterDelay(2500, [safe = juce::Component::SafePointer{this}] {
+                if (safe != nullptr)
+                {
+                    safe->deleteArmed = false;
+                    safe->deletePresetButton.setButtonText("Delete");
+                }
+            });
+            return;
+        }
+        deleteArmed = false;
+        deletePresetButton.setButtonText("Delete");
+        processor.deletePreset(name);
+        refreshPresetList();
+        presetBox.setTextWhenNothingSelected("Presets");
+        presetBox.setSelectedId(0, juce::dontSendNotification);
+        presetBox.setText({}, juce::dontSendNotification);
+    };
+    addAndMakeVisible(deletePresetButton);
+
     // Inline name entry, shown in place of the dropdown while saving.
     presetNameEditor.setVisible(false);
     presetNameEditor.setSelectAllWhenFocused(true);
@@ -359,6 +387,8 @@ void Editor::resized()
     presetBox.setBounds(utility.removeFromLeft(180));
     utility.removeFromLeft(6);
     savePresetButton.setBounds(utility.removeFromLeft(70));
+    utility.removeFromLeft(6);
+    deletePresetButton.setBounds(utility.removeFromLeft(60));
     utility.removeFromLeft(10);
     if (settingsButton.isVisible())
     {
