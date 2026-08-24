@@ -302,7 +302,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     // Trim is calibration, not performance: a fader beside the meter it
     // serves (channel-strip idiom), not a knob inviting play.
     trimSlider.setSliderStyle(juce::Slider::LinearVertical);
-    trimSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 72, 18);
+    trimSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 56, 18);
     trimSlider.setTextValueSuffix(" dB");
     addAndMakeVisible(trimSlider);
     trimSlider.setTooltip("Input staging gain. Place your hardest playing in the "
@@ -778,9 +778,9 @@ void Editor::resized()
     area.removeFromBottom(10);
 
     const int gap = 10;
-    auto outArea = area.removeFromRight(44);
+    auto outArea = area.removeFromRight(40); // meter width matches INPUT's
     area.removeFromRight(gap);
-    auto inputArea = area.removeFromLeft(118); // fixed: a channel strip, not a panel that grows
+    auto inputArea = area.removeFromLeft(100); // fixed: a channel strip, not a panel that grows
     area.removeFromLeft(gap);
     const int half = (area.getWidth() - gap) * 11 / 20; // AMP slightly wider
     auto ampArea = area.removeFromLeft(half);
@@ -820,8 +820,8 @@ void Editor::resized()
         // Mirror of OUT: full-height meter on the panel edge; trim column
         // beside it.
         auto r = inputArea.withTrimmedTop(header).reduced(8, 5);
-        meter.setBounds(r.removeFromLeft(18));
-        r.removeFromLeft(8);
+        meter.setBounds(r.removeFromLeft(24)); // same width as OUT's meter
+        r.removeFromLeft(4);
         trimCaption.setBounds(r.removeFromTop(16));
         trimSlider.setBounds(r);
     }
