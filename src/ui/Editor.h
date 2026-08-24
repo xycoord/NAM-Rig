@@ -22,9 +22,21 @@ public:
     ~Editor() override;
 
     void paint(juce::Graphics&) override;
-    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent&) override; // blur inline editors
+
+    // Mouse-transparent veil over a bypassed section's body. A component
+    // (not paintOverChildren) so tooltips can still float above it.
+    class DimOverlay final : public juce::Component
+    {
+    public:
+        DimOverlay() { setInterceptsMouseClicks(false, false); }
+        void paint(juce::Graphics& g) override
+        {
+            g.setColour(theme::colours::background.withAlpha(0.55f));
+            g.fillRoundedRectangle(getLocalBounds().toFloat(), 6.0f);
+        }
+    };
 
 private:
     // Chromatic tuner strip across the top. Note is the hero; deviation is
@@ -256,6 +268,7 @@ private:
     void syncQualitySelection();
 
     PowerButton ampPower, irPower;
+    DimOverlay ampDim, irDim;
     std::unique_ptr<ButtonAttachment> ampPowerAttachment, irPowerAttachment;
 
     // CAB / IR.

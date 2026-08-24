@@ -211,7 +211,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 
     knobValueEditor.setVisible(false);
     knobValueEditor.setJustification(juce::Justification::centred);
-    knobValueEditor.setSelectAllWhenFocused(true);
+    knobValueEditor.setSelectAllWhenFocused(false);
     addChildComponent(knobValueEditor);
 
     // --- utility bar ---
@@ -260,7 +260,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 
     // Inline name entry, shown in place of the dropdown while saving.
     presetNameEditor.setVisible(false);
-    presetNameEditor.setSelectAllWhenFocused(true);
+    presetNameEditor.setSelectAllWhenFocused(false);
     presetNameEditor.onReturnKey = [this] {
         const auto name = presetNameEditor.getText().trim();
         if (name.isNotEmpty())
@@ -372,13 +372,16 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     ampPower.setTooltip("Amp section on/off (filters, drive, model)");
     ampPowerAttachment = std::make_unique<ButtonAttachment>(
         state, state::param_ids::ampEnabled.getParamID(), ampPower);
-    ampPower.onStateChange = [this] { repaint(); };
+    ampPower.onStateChange = [this] { ampDim.setVisible(!ampPower.getToggleState()); };
 
     addAndMakeVisible(irPower);
     irPower.setTooltip("IR on/off (stays loaded while bypassed)");
     irPowerAttachment = std::make_unique<ButtonAttachment>(
         state, state::param_ids::irEnabled.getParamID(), irPower);
-    irPower.onStateChange = [this] { repaint(); };
+    irPower.onStateChange = [this] { irDim.setVisible(!irPower.getToggleState()); };
+
+    addChildComponent(ampDim);
+    addChildComponent(irDim);
 
     irRow.addTo(*this);
     irRow.name.onClick = [this] { chooseIr(); };
@@ -545,6 +548,7 @@ void Editor::openKnobValueEditor(KnobSlider& slider)
     knobValueEditor.setVisible(true);
     knobValueEditor.toFront(true);
     knobValueEditor.grabKeyboardFocus();
+    knobValueEditor.moveCaretToEnd();
 }
 
 void Editor::rebuildQualityLevels(const std::vector<double>& breakpoints)
@@ -608,6 +612,7 @@ void Editor::promptSavePreset()
     presetBox.setVisible(false);
     presetNameEditor.setVisible(true);
     presetNameEditor.grabKeyboardFocus();
+    presetNameEditor.moveCaretToEnd();
 }
 
 void Editor::chooseModel()
@@ -670,21 +675,6 @@ void Editor::paint(juce::Graphics& g)
     }
 }
 
-void Editor::paintOverChildren(juce::Graphics& g)
-{
-    // Bypassed sections dim below their header band (the power switch and
-    // title stay bright and reachable).
-    auto dimIf = [&](bool bypassed, const juce::Rectangle<int>& frame) {
-        if (bypassed && !frame.isEmpty())
-        {
-            g.setColour(kBackground.withAlpha(0.55f));
-            g.fillRoundedRectangle(frame.withTrimmedTop(22).toFloat(), 6.0f);
-        }
-    };
-    dimIf(!ampPower.getToggleState(), sections[1].frame);
-    dimIf(!irPower.getToggleState(), sections[2].frame);
-}
-
 void Editor::resized()
 {
     auto area = getLocalBounds().reduced(14);
@@ -724,6 +714,12 @@ void Editor::resized()
 
     ampPower.setBounds(ampArea.getX() + ampArea.getWidth() - 26, ampArea.getY() + 3, 18, 18);
     irPower.setBounds(irArea.getX() + irArea.getWidth() - 26, irArea.getY() + 3, 18, 18);
+    ampDim.setBounds(ampArea.withTrimmedTop(22));
+    irDim.setBounds(irArea.withTrimmedTop(22));
+    ampDim.setVisible(!ampPower.getToggleState());
+    irDim.setVisible(!irPower.getToggleState());
+    ampDim.toFront(false);
+    irDim.toFront(false);
 
     const int header = 20;
 
