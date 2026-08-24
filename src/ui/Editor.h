@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+
 #include <juce_audio_processors/juce_audio_processors.h>
 
 namespace namrig
@@ -7,9 +9,10 @@ namespace namrig
 
 class Processor;
 
-// Milestone 2 editor: gains, a minimal model loader (button + status line —
-// the real browser with folder-stepping is milestone 4), and the standalone
-// settings button. Resizable, flat vector theme.
+// Interim editor, structured as the signal chain reads: INPUT -> AMP ->
+// CAB/IR -> OUTPUT as labeled sections, with routing and app settings in a
+// utility bar. The real theme, meters, and preset bar arrive in milestone 4;
+// this establishes the layout language they land in.
 class Editor final : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -20,37 +23,58 @@ public:
     void resized() override;
 
 private:
-    void timerCallback() override; // poll model status for the label
+    void timerCallback() override;
     void chooseModel();
     void chooseIr();
 
     Processor& processor;
 
     using SliderAttachment = juce::AudioProcessorValueTreeState::SliderAttachment;
+    using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
+    using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    juce::Slider inputSlider, outputSlider;
-    juce::Label inputLabel, outputLabel;
-    std::unique_ptr<SliderAttachment> inputAttachment, outputAttachment;
+    // Section frames, computed in resized(), drawn in paint().
+    struct Section
+    {
+        juce::Rectangle<int> frame;
+        const char* title = "";
+    };
+    std::array<Section, 4> sections;
 
-    juce::TextButton loadModelButton{"Load model..."};
+    // Utility bar.
+    juce::ComboBox channelsBox;
+    juce::Label topologyLabel;
+    juce::TextButton settingsButton{"Audio Settings"}; // standalone only
+    std::unique_ptr<ComboAttachment> channelsAttachment;
+
+    // INPUT.
+    juce::Slider inputSlider;
+    std::unique_ptr<SliderAttachment> inputAttachment;
+
+    // AMP.
+    juce::TextButton loadModelButton{"Load..."};
     juce::TextButton clearModelButton{"Clear"};
     juce::Label modelStatusLabel;
+    juce::Label qualityCaption;
+    juce::Slider qualitySlider;
+    std::unique_ptr<SliderAttachment> qualityAttachment;
 
-    juce::TextButton loadIrButton{"Load IR..."};
+    // CAB / IR.
+    juce::TextButton loadIrButton{"Load..."};
     juce::TextButton clearIrButton{"Clear"};
-    juce::ToggleButton irToggle{"IR"};
+    juce::ToggleButton irToggle{"Enabled"};
     juce::Label irStatusLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> irToggleAttachment;
+    juce::ComboBox stereoIrBox; // visible only when it means something
+    std::unique_ptr<ButtonAttachment> irToggleAttachment;
+    std::unique_ptr<ComboAttachment> stereoIrAttachment;
 
-    juce::ComboBox channelsBox, stereoIrBox;
-    juce::Label topologyLabel;
-    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> channelsAttachment,
-        stereoIrAttachment;
+    // OUTPUT.
+    juce::Slider outputSlider;
+    juce::ComboBox outputModeBox;
+    std::unique_ptr<SliderAttachment> outputAttachment;
+    std::unique_ptr<ComboAttachment> outputModeAttachment;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
-
-    // Standalone only: opens the audio device settings.
-    juce::TextButton settingsButton{"Audio Settings"};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Editor)
 };

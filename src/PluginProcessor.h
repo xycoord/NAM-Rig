@@ -64,6 +64,20 @@ public:
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
     juce::String topologyDescription() const;
 
+    // True only when the Stereo IR policy actually affects anything: a
+    // 2-channel IR while the amp would otherwise process stereo.
+    bool isStereoIrPolicyRelevant() const
+    {
+        if (irNumChannels.load(std::memory_order_relaxed) != 2)
+            return false;
+        const int mode = static_cast<int>(channelsParam->load());
+        if (mode == 1) // forced mono
+            return false;
+        if (mode == 2) // forced stereo
+            return true;
+        return !juce::JUCEApplicationBase::isStandaloneApp() && busInputChannels >= 2;
+    }
+
 private:
     // Audio-thread view of the resolved topology.
     enum class IrTopology : int
