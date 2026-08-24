@@ -31,6 +31,11 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add(std::make_unique<AudioParameterChoice>(
         param_ids::channels, "Channels", StringArray{"Auto", "Mono", "Stereo"}, 0));
 
+    layout.add(std::make_unique<AudioParameterFloat>(
+        param_ids::normTarget, "Normalized Level",
+        NormalisableRange<float>{-36.0f, 0.0f, 0.1f}, -18.0f,
+        AudioParameterFloatAttributes{}.withLabel("dB")));
+
     layout.add(std::make_unique<AudioParameterChoice>(
         param_ids::stereoIrMode, "Stereo IR", StringArray{"Dual mono", "Mono to stereo"}, 0));
 

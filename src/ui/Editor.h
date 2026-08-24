@@ -72,7 +72,9 @@ private:
     // OUTPUT.
     juce::Slider outputSlider;
     juce::ComboBox outputModeBox;
-    std::unique_ptr<SliderAttachment> outputAttachment;
+    juce::Label normCaption;
+    juce::Slider normTargetSlider; // Normalized mode only
+    std::unique_ptr<SliderAttachment> outputAttachment, normTargetAttachment;
     std::unique_ptr<ComboAttachment> outputModeAttachment;
 
     std::unique_ptr<juce::FileChooser> fileChooser;

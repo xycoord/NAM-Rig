@@ -113,6 +113,19 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     outputModeBox.setTooltip("Normalized level-matches models that carry loudness "
                              "metadata; Raw leaves levels as captured.");
 
+    normCaption.setJustificationType(juce::Justification::centredLeft);
+    normCaption.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(normCaption);
+
+    normTargetSlider.setSliderStyle(juce::Slider::LinearHorizontal);
+    normTargetSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 18);
+    normTargetSlider.setTooltip(
+        "Normalized target level. Trim by ear against bypass with any well-tagged "
+        "model, and every other well-tagged model will land at bypass level too.");
+    addAndMakeVisible(normTargetSlider);
+    normTargetAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::normTarget.getParamID(), normTargetSlider);
+
     setResizable(true, true);
     setResizeLimits(640, 320, 0x3fffffff, 0x3fffffff);
     setSize(720, 340);
@@ -175,6 +188,34 @@ void Editor::timerCallback()
     }
 
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
+
+    // Normalized-mode trim: visible only in Normalized; caption reports the
+    // applied offset, or calls out missing metadata (no silent fallback).
+    const bool normalized = outputModeBox.getSelectedItemIndex() == 1;
+    if (normTargetSlider.isVisible() != normalized)
+    {
+        normTargetSlider.setVisible(normalized);
+        normCaption.setVisible(normalized);
+        resized();
+    }
+    if (normalized)
+    {
+        if (info.loaded && !info.hasLoudness)
+        {
+            normCaption.setColour(juce::Label::textColourId, kError);
+            normCaption.setText("Level (model has no loudness data)",
+                                juce::dontSendNotification);
+        }
+        else
+        {
+            normCaption.setColour(juce::Label::textColourId, kDim);
+            juce::String text{"Level"};
+            if (info.loaded)
+                text << "  (" << juce::String(processor.getNormalizationOffsetDb(), 1)
+                     << " dB applied)";
+            normCaption.setText(text, juce::dontSendNotification);
+        }
+    }
 
     // "Auto" should say what it resolved to.
     channelsBox.changeItemText(
@@ -299,9 +340,15 @@ void Editor::resized()
             stereoIrBox.setBounds(r.removeFromBottom(24).removeFromLeft(150));
     }
 
-    // OUTPUT: knob + mode.
+    // OUTPUT: knob, then mode; Normalized adds its level trim.
     {
         auto r = outputArea.withTrimmedTop(header).reduced(8);
+        if (normTargetSlider.isVisible())
+        {
+            normTargetSlider.setBounds(r.removeFromBottom(22));
+            normCaption.setBounds(r.removeFromBottom(16));
+            r.removeFromBottom(4);
+        }
         outputModeBox.setBounds(r.removeFromBottom(24));
         r.removeFromBottom(6);
         outputSlider.setBounds(r);

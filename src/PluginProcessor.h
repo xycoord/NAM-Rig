@@ -64,6 +64,12 @@ public:
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
     juce::String topologyDescription() const;
 
+    // Offset currently applied by Normalized mode (dB), for UI display.
+    float getNormalizationOffsetDb() const
+    {
+        return normalizationOffsetDb.load(std::memory_order_relaxed);
+    }
+
     // Resolved processing width (1 or 2), for UI display.
     int getResolvedLanes() const { return procLanes.load(std::memory_order_relaxed); }
 
@@ -106,6 +112,7 @@ private:
     std::atomic<float>* outputModeParam = nullptr;
     std::atomic<float>* irEnabledParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
+    std::atomic<float>* normTargetParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
 
     std::atomic<float> normalizationOffsetDb{0.0f};

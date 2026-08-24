@@ -11,9 +11,6 @@ namespace namrig
 
 namespace
 {
-// Normalized mode targets this loudness for models that carry metadata.
-constexpr double kTargetLoudnessDb = -18.0;
-
 // Channels parameter values.
 enum
 {
@@ -42,6 +39,7 @@ Processor::Processor()
     outputModeParam = state.getRawParameterValue(state::param_ids::outputMode.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
+    normTargetParam = state.getRawParameterValue(state::param_ids::normTarget.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
 
     irFormats.registerBasicFormats();
@@ -338,7 +336,7 @@ void Processor::timerCallback()
     const auto info = engine.models().info();
     const bool normalized = outputModeParam->load() >= 0.5f;
     const float offset = (normalized && info.hasLoudness)
-                             ? static_cast<float>(kTargetLoudnessDb - info.loudness)
+                             ? normTargetParam->load() - static_cast<float>(info.loudness)
                              : 0.0f;
     normalizationOffsetDb.store(offset, std::memory_order_relaxed);
 
