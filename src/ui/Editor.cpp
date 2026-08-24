@@ -391,6 +391,11 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     stereoIrBox.setTooltip("How a 2-channel IR is used when processing in stereo: "
                            "one channel per side, or collapse to mono and spread.");
 
+    // Hear every descendant click so inline editors blur when the user
+    // clicks anywhere outside them (non-focusable targets never trigger
+    // onFocusLost).
+    addMouseListener(this, true);
+
     setResizable(true, true);
     setResizeLimits(640, 380, 0x3fffffff, 0x3fffffff);
     setSize(760, 430);
@@ -629,6 +634,21 @@ void Editor::chooseIr()
                                  if (file.existsAsFile())
                                      processor.loadIr(file);
                              });
+}
+
+void Editor::mouseDown(const juce::MouseEvent& e)
+{
+    auto outside = [&](juce::TextEditor& ed) {
+        return ed.isVisible() && e.eventComponent != &ed
+               && !ed.isParentOf(e.eventComponent);
+    };
+    if (outside(knobValueEditor))
+        knobValueEditor.setVisible(false);
+    if (outside(presetNameEditor))
+    {
+        presetNameEditor.setVisible(false);
+        presetBox.setVisible(true);
+    }
 }
 
 void Editor::paint(juce::Graphics& g)

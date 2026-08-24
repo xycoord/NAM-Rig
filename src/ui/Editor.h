@@ -24,6 +24,7 @@ public:
     void paint(juce::Graphics&) override;
     void paintOverChildren(juce::Graphics&) override;
     void resized() override;
+    void mouseDown(const juce::MouseEvent&) override; // blur inline editors
 
 private:
     // Chromatic tuner strip across the top. Note is the hero; deviation is
