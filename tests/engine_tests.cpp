@@ -14,6 +14,7 @@
 #include "engine/Engine.h"
 #include "engine/ModelSlot.h"
 #include "engine/ResamplingNam.h"
+#include "engine/Tuner.h"
 #include "state/PathResolve.h"
 
 namespace
@@ -353,4 +354,71 @@ TEST_CASE("stored paths survive a moved library")
     CHECK_FALSE(namrig::state::resolveStoredPath(stored, rootD).has_value());
 
     fs::remove_all(base);
+}
+
+
+namespace
+{
+float detectTone(const double hz, const double sampleRate, const float amplitude = 0.2f)
+{
+    namrig::engine::Tuner tuner;
+    tuner.prepare(sampleRate);
+    tuner.setActive(true);
+
+    const int block = 256;
+    std::vector<float> buf(block);
+    double phase = 0.0;
+    const double inc = 2.0 * M_PI * hz / sampleRate;
+
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (std::chrono::steady_clock::now() < deadline)
+    {
+        for (int i = 0; i < block; ++i)
+        {
+            buf[static_cast<size_t>(i)] = amplitude * static_cast<float>(std::sin(phase));
+            phase += inc;
+        }
+        tuner.push(buf.data(), block);
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        if (tuner.frequencyHz() > 0.0f && tuner.clarity() > 0.9f)
+            return tuner.frequencyHz();
+    }
+    return tuner.frequencyHz();
+}
+} // namespace
+
+TEST_CASE("tuner detects reference tones within a few cents")
+{
+    // 1 cent = ratio 2^(1/1200) ~ 0.06%. Allow 3 cents.
+    auto centsOff = [](float detected, double target) {
+        return std::abs(1200.0 * std::log2(static_cast<double>(detected) / target));
+    };
+
+    const float a440 = detectTone(440.0, 48000.0);
+    REQUIRE(a440 > 0.0f);
+    CHECK(centsOff(a440, 440.0) < 3.0);
+
+    const float lowE = detectTone(82.41, 48000.0); // guitar low E
+    REQUIRE(lowE > 0.0f);
+    CHECK(centsOff(lowE, 82.41) < 3.0);
+
+    const float highE = detectTone(329.63, 48000.0); // guitar high E
+    REQUIRE(highE > 0.0f);
+    CHECK(centsOff(highE, 329.63) < 3.0);
+}
+
+TEST_CASE("tuner reports nothing for silence and when inactive")
+{
+    namrig::engine::Tuner tuner;
+    tuner.prepare(48000.0);
+    tuner.setActive(true);
+
+    std::vector<float> silence(512, 0.0f);
+    for (int i = 0; i < 40; ++i)
+        tuner.push(silence.data(), 512);
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    CHECK(tuner.frequencyHz() == 0.0f);
+
+    tuner.setActive(false);
+    CHECK(tuner.frequencyHz() == 0.0f);
 }

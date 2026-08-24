@@ -48,6 +48,7 @@ add_library(namrig_engine STATIC
     src/engine/Architectures.cpp
     src/engine/ResamplingNam.cpp
     src/engine/ModelSlot.cpp
+    src/engine/Tuner.cpp
     src/engine/Engine.cpp)
 target_include_directories(namrig_engine PUBLIC src)
 target_link_libraries(namrig_engine PUBLIC nam_core adt)

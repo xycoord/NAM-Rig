@@ -4,6 +4,7 @@
 
 #include "AdtPrelude.h"
 #include "ModelSlot.h"
+#include "Tuner.h"
 #include "dsp/RecursiveLinearFilter.h"
 
 namespace namrig::engine
@@ -33,6 +34,7 @@ public:
 
     ModelSlot& models() { return modelSlot; }
     const ModelSlot& models() const { return modelSlot; }
+    Tuner& tuner() { return pitchTuner; }
 
     int latencySamples() const { return modelSlot.latencySamples(); }
 
@@ -40,6 +42,7 @@ private:
     void processChunk(float* const* lanes, int numLanes, int numFrames);
 
     ModelSlot modelSlot;
+    Tuner pitchTuner;
     recursive_linear_filter::HighPass dcBlocker;
     std::vector<float> scratch0, scratch1; // model outputs per lane
 

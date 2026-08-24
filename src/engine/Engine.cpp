@@ -25,6 +25,7 @@ void Engine::prepare(const double newSampleRate, const int maxBlockSize)
     std::fill(scratch1.begin(), scratch1.end(), 0.0f);
 
     modelSlot.prepare(sampleRate, maxBlockSize);
+    pitchTuner.prepare(sampleRate);
 }
 
 void Engine::process(float* const* lanes, const int numLanes, const int numFrames)
@@ -45,6 +46,10 @@ void Engine::process(float* const* lanes, const int numLanes, const int numFrame
 void Engine::processChunk(float* const* lanes, const int numLanes, const int numFrames)
 {
     const size_t bytes = sizeof(float) * static_cast<size_t>(numFrames);
+
+    // Tuner tap: post-trim, pre-amp — the clean staged signal. Lane 0 is
+    // representative (stereo lanes carry the same instrument).
+    pitchTuner.push(lanes[0], numFrames);
 
     float* scratch[2] = {scratch0.data(), scratch1.data()};
 

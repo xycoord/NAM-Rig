@@ -25,6 +25,22 @@ public:
     void resized() override;
 
 private:
+    // Chromatic tuner strip across the top. Note is the hero; deviation is
+    // a bar growing from centre (right = sharp); green ONLY when in tune
+    // (same semantic as the meter's target zone). Idle = quiet dash.
+    class TunerStrip final : public juce::Component
+    {
+    public:
+        void setReading(float freqHz, float clarity); // UI thread, per tick
+        void paint(juce::Graphics&) override;
+
+    private:
+        int noteIndex = -1;    // midi note, -1 = idle
+        float centsSmoothed = 0.0f;
+        juce::int64 lastGoodMs = 0;
+        bool inTune = false;
+    };
+
     // Input staging meter: post-trim peak against a target zone. Repaints
     // only itself (rule 8).
     class StagingMeter final : public juce::Component
@@ -56,6 +72,8 @@ private:
         const char* title = "";
     };
     std::array<Section, 4> sections;
+
+    TunerStrip tunerStrip;
 
     // Utility bar.
     juce::ComboBox presetBox;

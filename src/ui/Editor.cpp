@@ -31,6 +31,115 @@ constexpr float kTargetLowDb = -15.0f;
 constexpr float kTargetHighDb = -6.0f;
 } // namespace
 
+// ---- TunerStrip -------------------------------------------------------------
+
+void Editor::TunerStrip::setReading(const float freqHz, const float clarity)
+{
+    const auto now = juce::Time::getMillisecondCounter();
+
+    if (freqHz > 0.0f && clarity > 0.85f)
+    {
+        const double midi = 69.0 + 12.0 * std::log2(static_cast<double>(freqHz) / 440.0);
+        const int nearest = static_cast<int>(std::lround(midi));
+        const auto cents = static_cast<float>((midi - nearest) * 100.0);
+
+        if (nearest != noteIndex)
+        {
+            noteIndex = nearest;
+            centsSmoothed = cents; // new note: no smoothing across the jump
+        }
+        else
+            centsSmoothed += 0.4f * (cents - centsSmoothed);
+
+        // In-tune with hysteresis: enter inside +/-5c, leave outside +/-8c.
+        inTune = inTune ? std::abs(centsSmoothed) < 8.0f : std::abs(centsSmoothed) < 5.0f;
+        lastGoodMs = static_cast<juce::int64>(now);
+        repaint();
+    }
+    else if (noteIndex >= 0
+             && now - static_cast<juce::uint32>(lastGoodMs) > 700) // hold, then idle
+    {
+        noteIndex = -1;
+        inTune = false;
+        repaint();
+    }
+}
+
+void Editor::TunerStrip::paint(juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour(kPanel);
+    g.fillRoundedRectangle(r, 6.0f);
+    g.setColour(kFrame);
+    g.drawRoundedRectangle(r, 6.0f, 1.0f);
+
+    const auto centreX = r.getCentreX();
+
+    if (noteIndex < 0)
+    {
+        g.setColour(kDim.withAlpha(0.6f));
+        g.setFont(juce::FontOptions{22.0f});
+        g.drawText("-", getLocalBounds(), juce::Justification::centred);
+        return;
+    }
+
+    static const char* names[12] = {"C",  "C#", "D",  "D#", "E",  "F",
+                                    "F#", "G",  "G#", "A",  "A#", "B"};
+    const auto* name = names[((noteIndex % 12) + 12) % 12];
+    const int octave = noteIndex / 12 - 1;
+
+    // Note (hero) + octave + signed cents.
+    const auto noteColour = inTune ? kOk : kText;
+    g.setColour(noteColour);
+    g.setFont(juce::FontOptions{30.0f}.withStyle("Bold"));
+    auto noteArea = getLocalBounds().withHeight(getHeight() * 2 / 3);
+    g.drawText(name, noteArea, juce::Justification::centred);
+
+    g.setFont(juce::FontOptions{13.0f});
+    const auto noteWidth =
+        juce::GlyphArrangement::getStringWidth(juce::Font{juce::FontOptions{30.0f}
+                                                              .withStyle("Bold")},
+                                               name);
+    g.setColour(kDim);
+    g.drawText(juce::String(octave),
+               noteArea.withX(static_cast<int>(centreX + noteWidth / 2 + 2)).withWidth(24),
+               juce::Justification::centredLeft);
+
+    const auto centsText = juce::String{centsSmoothed > 0 ? "+" : ""}
+                           + juce::String{static_cast<int>(std::lround(centsSmoothed))}
+                           + juce::String{juce::CharPointer_UTF8{"\xc2\xa2"}};
+    g.setColour(inTune ? kOk : kDim);
+    g.drawText(centsText,
+               noteArea.withX(static_cast<int>(centreX + noteWidth / 2 + 26)).withWidth(60),
+               juce::Justification::centredLeft);
+
+    // Deviation scale: +/-50 cents, ticks at 0 / 25 / 50.
+    const float scaleW = r.getWidth() * 0.72f;
+    const float scaleY = r.getBottom() - 14.0f;
+    const float left = centreX - scaleW / 2.0f;
+    g.setColour(kFrame);
+    g.fillRect(juce::Rectangle<float>{left, scaleY, scaleW, 2.0f});
+    for (const float c : {-50.0f, -25.0f, 0.0f, 25.0f, 50.0f})
+    {
+        const float x = centreX + (c / 50.0f) * (scaleW / 2.0f);
+        const float h = c == 0.0f ? 8.0f : 5.0f;
+        g.setColour(c == 0.0f ? kDim : kFrame);
+        g.fillRect(juce::Rectangle<float>{x - 1.0f, scaleY + 1.0f - h, 2.0f, h});
+    }
+
+    // Bar from centre: right = sharp, left = flat. Green only in tune.
+    const float clamped = juce::jlimit(-50.0f, 50.0f, centsSmoothed);
+    const float endX = centreX + (clamped / 50.0f) * (scaleW / 2.0f);
+    g.setColour(inTune ? kOk : kAccent);
+    g.fillRect(juce::Rectangle<float>{juce::jmin(centreX, endX), scaleY - 4.0f,
+                                      std::abs(endX - centreX), 6.0f});
+    if (inTune)
+    {
+        g.fillEllipse(juce::Rectangle<float>{8.0f, 8.0f}.withCentre(
+            {centreX, scaleY - 1.0f}));
+    }
+}
+
 // ---- StagingMeter -----------------------------------------------------------
 
 void Editor::StagingMeter::setLevel(const float peakLinear)
@@ -179,6 +288,9 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         addAndMakeVisible(settingsButton);
     }
 
+    addAndMakeVisible(tunerStrip);
+    processor.getEngine().tuner().setActive(true);
+
     // --- INPUT ---
     addAndMakeVisible(meter);
     addAndMakeVisible(outputMeter);
@@ -254,8 +366,8 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
                            "one channel per side, or collapse to mono and spread.");
 
     setResizable(true, true);
-    setResizeLimits(640, 320, 0x3fffffff, 0x3fffffff);
-    setSize(760, 360);
+    setResizeLimits(640, 380, 0x3fffffff, 0x3fffffff);
+    setSize(760, 430);
 
     startTimerHz(15); // meter pace; labels ride along
     timerCallback();
@@ -263,6 +375,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 
 Editor::~Editor()
 {
+    processor.getEngine().tuner().setActive(false);
     setLookAndFeel(nullptr);
 }
 
@@ -270,6 +383,8 @@ void Editor::timerCallback()
 {
     meter.setLevel(processor.consumeInputPeak());
     outputMeter.setLevel(processor.consumeOutputPeak());
+    tunerStrip.setReading(processor.getEngine().tuner().frequencyHz(),
+                          processor.getEngine().tuner().clarity());
 
     const auto info = processor.getEngine().models().info();
 
@@ -455,6 +570,9 @@ void Editor::paint(juce::Graphics& g)
 void Editor::resized()
 {
     auto area = getLocalBounds().reduced(14);
+
+    tunerStrip.setBounds(area.removeFromTop(58));
+    area.removeFromTop(10);
 
     auto utility = area.removeFromBottom(26);
     presetBox.setBounds(utility.removeFromLeft(180));
