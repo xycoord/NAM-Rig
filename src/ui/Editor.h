@@ -85,12 +85,11 @@ private:
     std::unique_ptr<ButtonAttachment> irToggleAttachment;
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
 
-    // OUTPUT: mode + normalized level.
+    // OUTPUT: mode + status (the bypass-matching offset is derived, not
+    // user-trimmed — staging pins the input, so the target is a constant).
     juce::ComboBox outputModeBox;
     juce::Label normCaption;
-    juce::Slider normTargetSlider;
     std::unique_ptr<ComboAttachment> outputModeAttachment;
-    std::unique_ptr<SliderAttachment> normTargetAttachment;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 

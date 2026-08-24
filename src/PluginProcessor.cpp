@@ -11,6 +11,13 @@ namespace namrig
 
 namespace
 {
+// Normalized-mode target loudness. With the input staged to the meter's
+// target zone, bypass loudness is pinned too, so the bypass-matching target
+// is a CONSTANT, not a user trim: zone-staged hard peaks ~-9 dBFS minus a
+// typical guitar crest factor (~13 dB) puts dry loudness near -22 dBFS.
+// One number to adjust if by-ear verification disagrees.
+constexpr float kNormTargetDb = -22.0f;
+
 // Channels parameter values.
 enum
 {
@@ -39,7 +46,6 @@ Processor::Processor()
     outputModeParam = state.getRawParameterValue(state::param_ids::outputMode.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
-    normTargetParam = state.getRawParameterValue(state::param_ids::normTarget.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
 
     irFormats.registerBasicFormats();
@@ -363,7 +369,7 @@ void Processor::timerCallback()
     const auto info = engine.models().info();
     const bool normalized = outputModeParam->load() >= 0.5f;
     const float offset = (normalized && info.hasLoudness)
-                             ? normTargetParam->load() - static_cast<float>(info.loudness)
+                             ? kNormTargetDb - static_cast<float>(info.loudness)
                              : 0.0f;
     normalizationOffsetDb.store(offset, std::memory_order_relaxed);
 

@@ -115,7 +115,6 @@ private:
     std::atomic<float>* outputModeParam = nullptr;
     std::atomic<float>* irEnabledParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
-    std::atomic<float>* normTargetParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
 
     std::atomic<float> normalizationOffsetDb{0.0f};

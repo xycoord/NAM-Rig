@@ -181,15 +181,6 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     normCaption.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(normCaption);
 
-    normTargetSlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    normTargetSlider.setTextBoxStyle(juce::Slider::TextBoxRight, false, 56, 18);
-    normTargetSlider.setTooltip(
-        "Normalized target level. Trim by ear against bypass with any well-tagged "
-        "model, and every other well-tagged model will land at bypass level too.");
-    addAndMakeVisible(normTargetSlider);
-    normTargetAttachment = std::make_unique<SliderAttachment>(
-        state, state::param_ids::normTarget.getParamID(), normTargetSlider);
-
     setResizable(true, true);
     setResizeLimits(640, 320, 0x3fffffff, 0x3fffffff);
     setSize(760, 360);
@@ -250,12 +241,11 @@ void Editor::timerCallback()
         resized();
     }
 
-    // Normalized-mode trim: caption reports the applied offset or missing
-    // metadata (no silent fallback).
+    // Normalized-mode status: the applied offset, or missing metadata
+    // (no silent fallback).
     const bool normalized = outputModeBox.getSelectedItemIndex() == 1;
-    if (normTargetSlider.isVisible() != normalized)
+    if (normCaption.isVisible() != normalized)
     {
-        normTargetSlider.setVisible(normalized);
         normCaption.setVisible(normalized);
         resized();
     }
@@ -270,11 +260,11 @@ void Editor::timerCallback()
         else
         {
             normCaption.setColour(juce::Label::textColourId, kDim);
-            juce::String text{"Level"};
-            if (info.loaded)
-                text << "  (" << juce::String(processor.getNormalizationOffsetDb(), 1)
-                     << " dB applied)";
-            normCaption.setText(text, juce::dontSendNotification);
+            normCaption.setText(info.loaded
+                                    ? juce::String(processor.getNormalizationOffsetDb(), 1)
+                                          + " dB applied"
+                                    : juce::String{},
+                                juce::dontSendNotification);
         }
     }
 
@@ -408,11 +398,8 @@ void Editor::resized()
         auto r = outputArea.withTrimmedTop(header).reduced(8);
         outputModeBox.setBounds(r.removeFromTop(24));
         r.removeFromTop(6);
-        if (normTargetSlider.isVisible())
-        {
+        if (normCaption.isVisible())
             normCaption.setBounds(r.removeFromTop(16));
-            normTargetSlider.setBounds(r.removeFromTop(22));
-        }
     }
 }
 
