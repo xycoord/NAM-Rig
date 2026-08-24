@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 
 #include "ui/Editor.h"
 
@@ -12,6 +13,21 @@ namespace
 {
 // Normalized mode targets this loudness for models that carry metadata.
 constexpr double kTargetLoudnessDb = -18.0;
+
+// Channels parameter values.
+enum
+{
+    kChannelsAuto = 0,
+    kChannelsMono = 1,
+    kChannelsStereo = 2
+};
+
+// Stereo IR parameter values.
+enum
+{
+    kStereoIrDualMono = 0,
+    kStereoIrMonoToStereo = 1
+};
 } // namespace
 
 Processor::Processor()
@@ -25,10 +41,12 @@ Processor::Processor()
     slimParam = state.getRawParameterValue(state::param_ids::slim.getParamID());
     outputModeParam = state.getRawParameterValue(state::param_ids::outputMode.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
+    channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
+    stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
 
-    // Development convenience until the file browser exists (milestone 4):
-    // NAMRIG_MODEL=/path/to/model.nam. The loader parks the request until
-    // the engine is prepared.
+    irFormats.registerBasicFormats();
+
+    // Development convenience until the file browser exists (milestone 4).
     if (const char* modelPath = std::getenv("NAMRIG_MODEL"))
         engine.models().requestLoad(std::filesystem::path{modelPath});
 
@@ -43,21 +61,29 @@ Processor::~Processor()
 void Processor::prepareToPlay(const double sampleRate, const int maximumExpectedSamplesPerBlock)
 {
     preparedBlockSize = maximumExpectedSamplesPerBlock;
-    monoBuffer.assign(static_cast<size_t>(preparedBlockSize), 0.0f);
-    dryBuffer.assign(static_cast<size_t>(preparedBlockSize), 0.0f);
+    const auto sz = static_cast<size_t>(preparedBlockSize);
+    for (auto* v : {&lane0, &lane1, &dry0, &dry1, &quadB0, &quadB1, &gainRamp})
+        v->assign(sz, 0.0f);
+
+    busInputChannels = getTotalNumInputChannels();
+    busOutputChannels = getTotalNumOutputChannels();
 
     engine.prepare(sampleRate, preparedBlockSize);
+    resolveTopology();
 
-    convolution.prepare({sampleRate, static_cast<juce::uint32>(preparedBlockSize), 1});
-    irMix.reset(sampleRate, 0.02);
-    irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
+    // Both convolutions are prepared 2-channel and always processed at that
+    // shape — no reallocation when the topology changes.
+    const juce::dsp::ProcessSpec spec{sampleRate, static_cast<juce::uint32>(preparedBlockSize), 2};
+    convPrimary.prepare(spec);
+    convQuadB.prepare(spec);
 
     const double rampSeconds = 0.02;
-    inputGain.reset(sampleRate, rampSeconds);
-    outputGain.reset(sampleRate, rampSeconds);
+    for (auto* s : {&inputGain, &outputGain, &irMix})
+        s->reset(sampleRate, rampSeconds);
     inputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(inputGainDb->load()));
     outputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
         outputGainDb->load() + normalizationOffsetDb.load(std::memory_order_relaxed)));
+    irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
 }
 
 bool Processor::isBusesLayoutSupported(const BusesLayout& layouts) const
@@ -73,6 +99,13 @@ bool Processor::isBusesLayoutSupported(const BusesLayout& layouts) const
     return true;
 }
 
+void Processor::applyGainRamp(
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>& smoother, const int numFrames)
+{
+    for (int i = 0; i < numFrames; ++i)
+        gainRamp[static_cast<size_t>(i)] = smoother.getNextValue();
+}
+
 void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&)
 {
     juce::ScopedNoDenormals noDenormals;
@@ -81,76 +114,227 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     const int numChannels = buffer.getNumChannels();
     const int numIn = juce::jmin(getTotalNumInputChannels(), numChannels);
     const int numOut = juce::jmin(getTotalNumOutputChannels(), numChannels);
-    const float inputScale = numIn > 0 ? 1.0f / static_cast<float>(numIn) : 0.0f;
+
+    const int lanes = procLanes.load(std::memory_order_relaxed);
+    const auto topo = static_cast<IrTopology>(irTopology.load(std::memory_order_relaxed));
+    const bool haveIr = irLoaded.load(std::memory_order_relaxed);
 
     inputGain.setTargetValue(juce::Decibels::decibelsToGain(inputGainDb->load()));
     outputGain.setTargetValue(juce::Decibels::decibelsToGain(
         outputGainDb->load() + normalizationOffsetDb.load(std::memory_order_relaxed)));
+    irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
 
-    // Hosts may exceed the promised block size; monoBuffer is sized to the
-    // promise, so chunk here (the engine also chunks internally — belt and
-    // braces, both allocation-free).
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)
     {
         const int n = juce::jmin(totalFrames - offset, preparedBlockSize);
+        const auto bytes = sizeof(float) * static_cast<size_t>(n);
 
-        // Mix down with smoothed input gain.
-        for (int s = 0; s < n; ++s)
+        // ---- build lanes ---------------------------------------------------
+        if (lanes == 1)
         {
-            float mono = 0.0f;
-            for (int c = 0; c < numIn; ++c)
-                mono += buffer.getReadPointer(c)[offset + s];
-            monoBuffer[static_cast<size_t>(s)] = mono * inputScale * inputGain.getNextValue();
+            const float scale = numIn > 0 ? 1.0f / static_cast<float>(numIn) : 0.0f;
+            for (int s = 0; s < n; ++s)
+            {
+                float mono = 0.0f;
+                for (int c = 0; c < numIn; ++c)
+                    mono += buffer.getReadPointer(c)[offset + s];
+                lane0[static_cast<size_t>(s)] = mono * scale;
+            }
+        }
+        else
+        {
+            std::memcpy(lane0.data(), buffer.getReadPointer(0) + offset, bytes);
+            const int rightSource = numIn > 1 ? 1 : 0;
+            std::memcpy(lane1.data(), buffer.getReadPointer(rightSource) + offset, bytes);
         }
 
-        engine.process(monoBuffer.data(), n);
+        // ---- input gain (identical ramp on every lane) ---------------------
+        applyGainRamp(inputGain, n);
+        for (int s = 0; s < n; ++s)
+            lane0[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
+        if (lanes == 2)
+            for (int s = 0; s < n; ++s)
+                lane1[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
 
-        // IR stage: convolve, then smoothed wet/dry per the toggle. The
-        // convolution must keep running while bypassed so its state is warm
-        // when the toggle returns (and load swaps stay seamless).
-        irMix.setTargetValue(
-            (irEnabledParam->load() >= 0.5f && irLoaded.load(std::memory_order_relaxed))
-                ? 1.0f
-                : 0.0f);
-        if (irLoaded.load(std::memory_order_relaxed))
+        // ---- amp + DC blocker ----------------------------------------------
+        float* lanePtrs[2] = {lane0.data(), lane1.data()};
+        engine.process(lanePtrs, lanes, n);
+
+        // ---- IR stage ------------------------------------------------------
+        int wetLanes = lanes;
+        if (haveIr && topo != IrTopology::none)
         {
-            std::memcpy(dryBuffer.data(), monoBuffer.data(), sizeof(float) * static_cast<size_t>(n));
-            float* channel[1] = {monoBuffer.data()};
-            juce::dsp::AudioBlock<float> block{channel, 1, static_cast<size_t>(n)};
-            juce::dsp::ProcessContextReplacing<float> ctx{block};
-            convolution.process(ctx);
-            for (int s2 = 0; s2 < n; ++s2)
+            // Dry snapshot for the bypass crossfade (mono dry feeds both
+            // ears when the wet side is stereo).
+            std::memcpy(dry0.data(), lane0.data(), bytes);
+            std::memcpy(dry1.data(), lanes == 2 ? lane1.data() : lane0.data(), bytes);
+
+            if (topo == IrTopology::monoToStereo)
             {
-                const float mix = irMix.getNextValue();
-                monoBuffer[static_cast<size_t>(s2)] =
-                    mix * monoBuffer[static_cast<size_t>(s2)]
-                    + (1.0f - mix) * dryBuffer[static_cast<size_t>(s2)];
+                std::memcpy(lane1.data(), lane0.data(), bytes);
+                wetLanes = 2;
             }
+            else if (topo == IrTopology::quad)
+            {
+                // convPrimary: [LL,LR] fed L on both channels;
+                // convQuadB:   [RL,RR] fed R on both channels.
+                std::memcpy(quadB0.data(), lane1.data(), bytes);
+                std::memcpy(quadB1.data(), lane1.data(), bytes);
+                std::memcpy(lane1.data(), lane0.data(), bytes);
+                wetLanes = 2;
+            }
+            else if (lanes == 1)
+            {
+                std::memset(lane1.data(), 0, bytes); // defined data on ch2
+            }
+
+            {
+                float* ch[2] = {lane0.data(), lane1.data()};
+                juce::dsp::AudioBlock<float> block{ch, 2, static_cast<size_t>(n)};
+                juce::dsp::ProcessContextReplacing<float> ctx{block};
+                convPrimary.process(ctx);
+            }
+            if (topo == IrTopology::quad)
+            {
+                float* ch[2] = {quadB0.data(), quadB1.data()};
+                juce::dsp::AudioBlock<float> block{ch, 2, static_cast<size_t>(n)};
+                juce::dsp::ProcessContextReplacing<float> ctx{block};
+                convQuadB.process(ctx);
+                for (int s = 0; s < n; ++s)
+                {
+                    lane0[static_cast<size_t>(s)] += quadB0[static_cast<size_t>(s)];
+                    lane1[static_cast<size_t>(s)] += quadB1[static_cast<size_t>(s)];
+                }
+            }
+
+            // Wet/dry crossfade (the IR toggle).
+            applyGainRamp(irMix, n);
+            for (int s = 0; s < n; ++s)
+            {
+                const float mix = gainRamp[static_cast<size_t>(s)];
+                lane0[static_cast<size_t>(s)] = mix * lane0[static_cast<size_t>(s)]
+                                                + (1.0f - mix) * dry0[static_cast<size_t>(s)];
+            }
+            if (wetLanes == 2)
+                for (int s = 0; s < n; ++s)
+                {
+                    const float mix = gainRamp[static_cast<size_t>(s)];
+                    lane1[static_cast<size_t>(s)] = mix * lane1[static_cast<size_t>(s)]
+                                                    + (1.0f - mix) * dry1[static_cast<size_t>(s)];
+                }
         }
         else
         {
             irMix.skip(n); // keep the smoother in real time
         }
 
-        // Broadcast with smoothed output gain.
-        for (int s = 0; s < n; ++s)
+        // ---- output gain + write out ---------------------------------------
+        applyGainRamp(outputGain, n);
+        if (wetLanes == 1)
         {
-            const float out = monoBuffer[static_cast<size_t>(s)] * outputGain.getNextValue();
+            for (int s = 0; s < n; ++s)
+                lane0[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
             for (int c = 0; c < numOut; ++c)
-                buffer.getWritePointer(c)[offset + s] = out;
+                std::memcpy(buffer.getWritePointer(c) + offset, lane0.data(), bytes);
+        }
+        else
+        {
+            for (int s = 0; s < n; ++s)
+            {
+                const float g = gainRamp[static_cast<size_t>(s)];
+                lane0[static_cast<size_t>(s)] *= g;
+                lane1[static_cast<size_t>(s)] *= g;
+            }
+            if (numOut >= 2)
+            {
+                std::memcpy(buffer.getWritePointer(0) + offset, lane0.data(), bytes);
+                std::memcpy(buffer.getWritePointer(1) + offset, lane1.data(), bytes);
+            }
+            else if (numOut == 1)
+            {
+                for (int s = 0; s < n; ++s)
+                    buffer.getWritePointer(0)[offset + s] =
+                        0.5f * (lane0[static_cast<size_t>(s)] + lane1[static_cast<size_t>(s)]);
+            }
         }
     }
 }
 
+void Processor::resolveTopology()
+{
+    // Processing width.
+    const int mode = static_cast<int>(channelsParam->load());
+    int lanes = 1;
+    if (mode == kChannelsStereo)
+        lanes = 2;
+    else if (mode == kChannelsAuto)
+    {
+        // Auto: bus width in a DAW. In the standalone a stereo device bus
+        // usually carries one live channel (guitar), so Auto means mono
+        // there — stereo processing is an explicit choice.
+        lanes = (!juce::JUCEApplicationBase::isStandaloneApp() && busInputChannels >= 2) ? 2 : 1;
+    }
+
+    // IR topology from the file's channel count at that width.
+    const int irCh = irNumChannels.load(std::memory_order_relaxed);
+    IrTopology topo = IrTopology::none;
+    if (irLoaded.load(std::memory_order_relaxed) && irCh > 0)
+    {
+        if (irCh == 1)
+            topo = IrTopology::simple;
+        else if (irCh == 2)
+        {
+            if (lanes == 1)
+                topo = IrTopology::monoToStereo;
+            else
+                topo = static_cast<int>(stereoIrModeParam->load()) == kStereoIrMonoToStereo
+                           ? IrTopology::monoToStereo // collapse handled below
+                           : IrTopology::simple;      // dual mono
+        }
+        else // 4 (or anything >2): true stereo; mono processing uses LL/LR
+            topo = lanes == 2 ? IrTopology::quad : IrTopology::monoToStereo;
+
+        // "Mono -> stereo" of a stereo-processed signal means collapsing
+        // first; simplest correct form is to process mono.
+        if (topo == IrTopology::monoToStereo && lanes == 2)
+            lanes = 1;
+    }
+
+    procLanes.store(lanes, std::memory_order_relaxed);
+    irTopology.store(static_cast<int>(topo), std::memory_order_relaxed);
+    engine.models().setLanes(lanes);
+}
+
+juce::String Processor::topologyDescription() const
+{
+    const int lanes = procLanes.load(std::memory_order_relaxed);
+    const auto topo = static_cast<IrTopology>(irTopology.load(std::memory_order_relaxed));
+
+    juce::String s;
+    s << (busInputChannels >= 2 ? "stereo in" : "mono in");
+    s << (lanes == 2 ? " \xe2\x86\x92 2\xc3\x97 amp" : " \xe2\x86\x92 amp");
+    switch (topo)
+    {
+        case IrTopology::none: break;
+        case IrTopology::simple:
+            s << (lanes == 2 ? " \xe2\x86\x92 IR (dual)" : " \xe2\x86\x92 IR");
+            break;
+        case IrTopology::monoToStereo: s << " \xe2\x86\x92 IR (mono\xe2\x86\x92stereo)"; break;
+        case IrTopology::quad: s << " \xe2\x86\x92 IR (true stereo)"; break;
+    }
+    const bool stereoOut =
+        (lanes == 2 || topo == IrTopology::monoToStereo || topo == IrTopology::quad)
+        && busOutputChannels >= 2;
+    s << (stereoOut ? " \xe2\x86\x92 stereo out" : " \xe2\x86\x92 mono out");
+    return s;
+}
+
 void Processor::timerCallback()
 {
-    // Latency: flagged by the audio thread's model swap, applied here
-    // (message thread) so the host is never called from the callback.
     const int latency = engine.latencySamples();
     if (latency != getLatencySamples())
         setLatencySamples(latency);
 
-    // Output-mode normalization from model metadata.
     const auto info = engine.models().info();
     const bool normalized = outputModeParam->load() >= 0.5f;
     const float offset = (normalized && info.hasLoudness)
@@ -158,32 +342,78 @@ void Processor::timerCallback()
                              : 0.0f;
     normalizationOffsetDb.store(offset, std::memory_order_relaxed);
 
-    // Forward Quality (slim) changes; the loader thread applies them.
     const float slim = slimParam->load();
     if (std::abs(slim - lastForwardedSlim) > 1.0e-6f)
     {
         lastForwardedSlim = slim;
         engine.models().setSlim(slim);
     }
+
+    resolveTopology();
 }
 
 void Processor::loadIr(const juce::File& file)
 {
-    // Convolution parses and resamples on its internal background thread,
-    // then swaps lock-free. Mono, whole length, normalised — the usual cab
-    // IR treatment.
-    convolution.loadImpulseResponse(file, juce::dsp::Convolution::Stereo::no,
-                                    juce::dsp::Convolution::Trim::no, 0,
-                                    juce::dsp::Convolution::Normalise::yes);
+    std::unique_ptr<juce::AudioFormatReader> reader{irFormats.createReaderFor(file)};
+    if (reader == nullptr)
+        return;
+
+    const int numCh = static_cast<int>(reader->numChannels);
+    const auto numSamples = static_cast<int>(reader->lengthInSamples);
+    juce::AudioBuffer<float> all(numCh, numSamples);
+    reader->read(&all, 0, numSamples, 0, true, true);
+
+    // Global energy normalization across ALL channels, so the four quad
+    // channels keep their relative balance (per-convolution normalization
+    // would skew LL/LR against RL/RR).
+    double sumSq = 0.0;
+    for (int c = 0; c < numCh; ++c)
+        for (int i = 0; i < numSamples; ++i)
+            sumSq += static_cast<double>(all.getSample(c, i)) * all.getSample(c, i);
+    if (sumSq <= 0.0)
+        return;
+    all.applyGain(static_cast<float>(1.0 / std::sqrt(sumSq)));
+
+    auto slice = [&](int firstChannel, int channels) {
+        juce::AudioBuffer<float> b(channels, numSamples);
+        for (int c = 0; c < channels; ++c)
+            b.copyFrom(c, 0, all, firstChannel + c, 0, numSamples);
+        return b;
+    };
+
+    const double sr = reader->sampleRate;
+    using Stereo = juce::dsp::Convolution::Stereo;
+    using Trim = juce::dsp::Convolution::Trim;
+    using Normalise = juce::dsp::Convolution::Normalise;
+
+    if (numCh >= 4)
+    {
+        convPrimary.loadImpulseResponse(slice(0, 2), sr, Stereo::yes, Trim::no, Normalise::no);
+        convQuadB.loadImpulseResponse(slice(2, 2), sr, Stereo::yes, Trim::no, Normalise::no);
+        irNumChannels.store(4, std::memory_order_relaxed);
+    }
+    else if (numCh == 2)
+    {
+        convPrimary.loadImpulseResponse(slice(0, 2), sr, Stereo::yes, Trim::no, Normalise::no);
+        irNumChannels.store(2, std::memory_order_relaxed);
+    }
+    else
+    {
+        convPrimary.loadImpulseResponse(slice(0, 1), sr, Stereo::no, Trim::no, Normalise::no);
+        irNumChannels.store(1, std::memory_order_relaxed);
+    }
+
     irPath = file.getFullPathName();
     irLoaded.store(true, std::memory_order_relaxed);
+    resolveTopology();
 }
 
 void Processor::clearIr()
 {
     irLoaded.store(false, std::memory_order_relaxed);
+    irNumChannels.store(0, std::memory_order_relaxed);
     irPath.clear();
-    // No unload API; the loaded IR just stops being mixed in (mix -> dry).
+    resolveTopology();
 }
 
 juce::AudioProcessorEditor* Processor::createEditor()

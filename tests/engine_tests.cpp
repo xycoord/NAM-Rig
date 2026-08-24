@@ -105,13 +105,14 @@ TEST_CASE("ModelSlot loads, swaps, clears")
     REQUIRE(waitForLoad(slot, std::chrono::seconds(30)));
 
     // The "audio thread" (this one) swaps the model in on render().
-    namrig::engine::ResamplingNam* model = nullptr;
+    namrig::engine::ModelPair* model = nullptr;
     for (int i = 0; i < 100 && model == nullptr; ++i)
     {
         model = slot.render();
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
     REQUIRE(model != nullptr);
+    CHECK(model->numLanes == 1);
 
     auto info = slot.info();
     CHECK(info.loaded);
@@ -148,7 +149,7 @@ TEST_CASE("ModelSlot applies slim to slimmable models")
     REQUIRE(waitForLoad(slot, std::chrono::seconds(30)));
     CHECK(slot.info().slimmable);
 
-    namrig::engine::ResamplingNam* model = nullptr;
+    namrig::engine::ModelPair* model = nullptr;
     for (int i = 0; i < 100 && model == nullptr; ++i)
     {
         model = slot.render();
@@ -167,7 +168,7 @@ TEST_CASE("ModelSlot applies slim to slimmable models")
     {
         model = slot.render();
         REQUIRE(model != nullptr);
-        model->process(in, out, 256);
+        model->lane[0]->process(in, out, 256);
     }
     CHECK(allFinite(output));
 }
@@ -183,7 +184,10 @@ TEST_CASE("Engine passthrough without a model is identity plus DC blocker")
     auto signal = makeSine(blocks * blockSize, 48000.0);
     const auto original = signal;
     for (int b = 0; b < blocks; ++b)
-        engine.process(signal.data() + b * blockSize, blockSize);
+    {
+        float* lanes[1] = {signal.data() + b * blockSize};
+        engine.process(lanes, 1, blockSize);
+    }
 
     CHECK(allFinite(signal));
     // After settling, a 5 Hz high-pass leaves a 220 Hz sine essentially
@@ -201,7 +205,8 @@ TEST_CASE("Engine chunks oversized blocks without reallocation")
 
     // 4096 frames through an engine prepared for 128: must chunk, not die.
     auto signal = makeSine(4096, 48000.0);
-    engine.process(signal.data(), 4096);
+    float* lanes[1] = {signal.data()};
+    engine.process(lanes, 1, 4096);
     CHECK(allFinite(signal));
 }
 
@@ -213,14 +218,62 @@ TEST_CASE("Engine renders a loaded model with finite output")
     engine.models().requestLoad(kModelsDir / "wavenet.nam");
     REQUIRE(waitForLoad(engine.models(), std::chrono::seconds(30)));
 
-    auto signal = makeSine(256, 48000.0);
     std::vector<float> lastBlock;
     for (int i = 0; i < 50; ++i)
     {
         lastBlock = makeSine(256, 48000.0);
-        engine.process(lastBlock.data(), 256);
+        float* lanes[1] = {lastBlock.data()};
+        engine.process(lanes, 1, 256);
     }
 
     CHECK(allFinite(lastBlock));
     CHECK(peak(lastBlock) > 0.0f); // an amp model should produce *something*
+}
+
+
+TEST_CASE("stereo lanes process independently through a model pair")
+{
+    namrig::engine::Engine engine;
+    engine.prepare(48000.0, 256);
+    engine.models().setLanes(2);
+
+    engine.models().requestLoad(kModelsDir / "wavenet.nam");
+    REQUIRE(waitForLoad(engine.models(), std::chrono::seconds(30)));
+    REQUIRE(engine.models().info().numLanes == 2);
+
+    // Distinct signals per lane: a sine left, silence right. After enough
+    // blocks the lanes must differ (left carries signal) and stay finite.
+    std::vector<float> left, right;
+    float peakL = 0.0f, peakR = 0.0f;
+    for (int i = 0; i < 50; ++i)
+    {
+        left = makeSine(256, 48000.0);
+        right.assign(256, 0.0f);
+        float* lanes[2] = {left.data(), right.data()};
+        engine.process(lanes, 2, 256);
+        peakL = std::max(peakL, peak(left));
+        peakR = std::max(peakR, peak(right));
+    }
+
+    CHECK(allFinite(left));
+    CHECK(allFinite(right));
+    CHECK(peakL > 0.001f);
+    // The silent lane may carry model bias/noise but must be far below the
+    // driven lane.
+    CHECK(peakR < peakL * 0.5f);
+}
+
+TEST_CASE("lane count change rebuilds the loaded model")
+{
+    namrig::engine::ModelSlot slot;
+    slot.prepare(48000.0, 256);
+    slot.requestLoad(kModelsDir / "wavenet.nam");
+    REQUIRE(waitForLoad(slot, std::chrono::seconds(30)));
+    CHECK(slot.info().numLanes == 1);
+
+    slot.setLanes(2);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (slot.info().numLanes != 2 && std::chrono::steady_clock::now() < deadline)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    CHECK(slot.info().numLanes == 2);
 }

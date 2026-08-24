@@ -42,6 +42,11 @@ private:
     juce::Label irStatusLabel;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> irToggleAttachment;
 
+    juce::ComboBox channelsBox, stereoIrBox;
+    juce::Label topologyLabel;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ComboBoxAttachment> channelsAttachment,
+        stereoIrAttachment;
+
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     // Standalone only: opens the audio device settings.

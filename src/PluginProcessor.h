@@ -10,11 +10,17 @@
 namespace namrig
 {
 
-// JUCE shell around engine::Engine. Owns the gains (SmoothedValues), the
-// mono mixdown/broadcast, and the message-thread duties the engine can't do
-// itself: latency reporting to the host, output-mode normalization, and
-// forwarding the Quality (slim) parameter — all via a 10 Hz timer, never
-// from the audio thread (CLAUDE.md rules 3 & 4).
+// JUCE shell around engine::Engine. Owns the gains (SmoothedValues), lane
+// building and channel topology, the IR stage, and the message-thread
+// duties the engine can't do itself: latency reporting, output-mode
+// normalization, Quality (slim) forwarding, and topology resolution — via a
+// 10 Hz timer, never from the audio thread (CLAUDE.md rules 3 & 4).
+//
+// Channel design (docs/plan.md): processing width comes from the input bus
+// (Auto; mono in the standalone) or the Channels override. Stereo = two
+// instances of the same model. IR topology is inferred from the IR file's
+// channel count: 1 = cab, 2 = mono->stereo or dual-mono (Stereo IR param),
+// 4 = true stereo (LL,LR,RL,RR as two stereo convolutions).
 class Processor final : public juce::AudioProcessor, private juce::Timer
 {
 public:
@@ -49,15 +55,29 @@ public:
     juce::AudioProcessorValueTreeState& getState() { return state; }
     engine::Engine& getEngine() { return engine; }
 
-    // IR management (message thread). juce::dsp::Convolution loads on its
-    // own background thread and swaps lock-free under a running process().
+    // IR management (message thread).
     void loadIr(const juce::File& file);
     void clearIr();
     juce::String getIrPath() const { return irPath; }
     bool isIrLoaded() const { return irLoaded.load(std::memory_order_relaxed); }
 
+    // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
+    juce::String topologyDescription() const;
+
 private:
+    // Audio-thread view of the resolved topology.
+    enum class IrTopology : int
+    {
+        none = 0,     // no IR (or bypassed-by-absence)
+        simple,       // primary convolution at processing width
+        monoToStereo, // widen mono lane, then primary (2ch IR)
+        quad          // two stereo convolutions: [LL,LR] and [RL,RR]
+    };
+
     void timerCallback() override; // message thread
+    void resolveTopology();        // message thread
+    void applyGainRamp(juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear>& smoother,
+                       int numFrames); // fills gainRamp
 
     juce::AudioProcessorValueTreeState state;
     engine::Engine engine;
@@ -67,24 +87,32 @@ private:
     std::atomic<float>* outputGainDb = nullptr;
     std::atomic<float>* slimParam = nullptr;
     std::atomic<float>* outputModeParam = nullptr;
+    std::atomic<float>* irEnabledParam = nullptr;
+    std::atomic<float>* channelsParam = nullptr;
+    std::atomic<float>* stereoIrModeParam = nullptr;
 
-    // Output-mode offset, computed on the message thread from model
-    // metadata, folded into the smoothed output gain on the audio thread.
     std::atomic<float> normalizationOffsetDb{0.0f};
 
-    // Rule: every gain is smoothed.
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain;
+    // Resolved topology (message thread writes, audio thread reads).
+    std::atomic<int> procLanes{1};
+    std::atomic<int> irTopology{static_cast<int>(IrTopology::none)};
 
-    // IR stage. The toggle is a smoothed wet/dry crossfade, not a hard
-    // switch — no click on bypass.
-    juce::dsp::Convolution convolution;
-    std::atomic<float>* irEnabledParam = nullptr;
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> irMix;
+    // Rule: every gain is smoothed. Ramps are rendered once per chunk into
+    // gainRamp so both lanes see identical values.
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain, irMix;
+
+    // IR stage. convPrimary serves 1ch and 2ch IRs (and the LL/LR half of a
+    // quad); convQuadB is the RL/RR half, processed only in quad topology.
+    juce::dsp::Convolution convPrimary, convQuadB;
+    juce::AudioFormatManager irFormats;
     juce::String irPath;
     std::atomic<bool> irLoaded{false};
+    std::atomic<int> irNumChannels{0};
 
-    std::vector<float> monoBuffer, dryBuffer; // sized in prepareToPlay
+    // Preallocated lane workspaces (prepareToPlay).
+    std::vector<float> lane0, lane1, dry0, dry1, quadB0, quadB1, gainRamp;
     int preparedBlockSize = 0;
+    int busInputChannels = 2, busOutputChannels = 2; // cached for resolve
 
     float lastForwardedSlim = -1.0f; // timer-side cache
 

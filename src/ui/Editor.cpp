@@ -65,6 +65,21 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     irStatusLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(irStatusLabel);
 
+    auto setUpChoiceBox = [this, &state](juce::ComboBox& box, const juce::ParameterID& id,
+                                         auto& attachment) {
+        if (auto* p2 = state.getParameter(id.getParamID()))
+            box.addItemList(p2->getAllValueStrings(), 1);
+        addAndMakeVisible(box);
+        attachment = std::make_unique<juce::AudioProcessorValueTreeState::ComboBoxAttachment>(
+            state, id.getParamID(), box);
+    };
+    setUpChoiceBox(channelsBox, state::param_ids::channels, channelsAttachment);
+    setUpChoiceBox(stereoIrBox, state::param_ids::stereoIrMode, stereoIrAttachment);
+
+    topologyLabel.setJustificationType(juce::Justification::centredRight);
+    topologyLabel.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(topologyLabel);
+
     if (juce::JUCEApplicationBase::isStandaloneApp())
     {
         settingsButton.onClick = [] {
@@ -123,6 +138,10 @@ void Editor::timerCallback()
         irStatusLabel.setText("No IR loaded", juce::dontSendNotification);
     }
     clearIrButton.setEnabled(processor.isIrLoaded());
+
+    topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
+    // The stereo-IR policy only matters for a 2ch IR under stereo processing.
+    stereoIrBox.setEnabled(processor.isIrLoaded());
 }
 
 void Editor::chooseModel()
@@ -162,6 +181,15 @@ void Editor::paint(juce::Graphics& g)
 void Editor::resized()
 {
     auto area = getLocalBounds().reduced(20);
+
+    // Routing row: channel mode, stereo-IR policy, resolved topology.
+    auto routingBar = area.removeFromBottom(26);
+    channelsBox.setBounds(routingBar.removeFromLeft(110));
+    routingBar.removeFromLeft(8);
+    stereoIrBox.setBounds(routingBar.removeFromLeft(130));
+    routingBar.removeFromLeft(12);
+    topologyLabel.setBounds(routingBar);
+    area.removeFromBottom(8);
 
     // Bottom bars: IR row above model row (both interim until milestone 4).
     auto irBar = area.removeFromBottom(28);

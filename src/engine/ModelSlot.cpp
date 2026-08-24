@@ -36,7 +36,7 @@ ModelSlot::~ModelSlot()
 
 // --- audio thread ------------------------------------------------------------
 
-bool ModelSlot::pushRetired(ResamplingNam* p)
+bool ModelSlot::pushRetired(ModelPair* p)
 {
     const size_t head = retireHead.load(std::memory_order_relaxed);
     const size_t next = (head + 1) % kRetireSlots;
@@ -47,7 +47,7 @@ bool ModelSlot::pushRetired(ResamplingNam* p)
     return true;
 }
 
-ResamplingNam* ModelSlot::render()
+ModelPair* ModelSlot::render()
 {
     if (clearRequested.load(std::memory_order_relaxed))
     {
@@ -59,17 +59,17 @@ ResamplingNam* ModelSlot::render()
         }
     }
 
-    if (ResamplingNam* incoming = pending.exchange(nullptr, std::memory_order_acq_rel))
+    if (ModelPair* incoming = pending.exchange(nullptr, std::memory_order_acq_rel))
     {
         if (current == nullptr || pushRetired(current))
         {
             current = incoming;
-            latency.store(current->latency(), std::memory_order_relaxed);
+            latency.store(current->lane[0]->latency(), std::memory_order_relaxed);
         }
         else
         {
             // Retire ring full (pathological). Defer the swap: put the new
-            // model back and try again next block.
+            // pair back and try again next block.
             pending.store(incoming, std::memory_order_release);
         }
     }
@@ -86,14 +86,15 @@ void ModelSlot::prepare(const double sampleRate, const int maxBlockSize)
     prepared.store(true, std::memory_order_release);
     jobCv.notify_all(); // a load may be parked waiting for prepare()
 
-    // Audio is stopped (prepareToPlay contract): the current model and the
+    // Audio is stopped (prepareToPlay contract): the current pair and the
     // pending slot are safe to touch directly.
     if (auto* p = pending.exchange(nullptr))
         destroyOwned(p);
     if (current != nullptr)
     {
-        current->Reset(sampleRate, maxBlockSize); // includes prewarm
-        latency.store(current->latency(), std::memory_order_relaxed);
+        for (int i = 0; i < current->numLanes; ++i)
+            current->lane[static_cast<size_t>(i)]->Reset(sampleRate, maxBlockSize);
+        latency.store(current->lane[0]->latency(), std::memory_order_relaxed);
     }
 }
 
@@ -119,7 +120,7 @@ void ModelSlot::requestClear()
         std::lock_guard<std::mutex> lock(infoMutex);
         currentInfo = ModelInfo{};
     }
-    jobCv.notify_all(); // wake worker to drain the retired model promptly
+    jobCv.notify_all(); // wake worker to drain the retired pair promptly
 }
 
 void ModelSlot::setSlim(const double value)
@@ -132,6 +133,23 @@ void ModelSlot::setSlim(const double value)
     jobCv.notify_all();
 }
 
+void ModelSlot::setLanes(const int numLanes)
+{
+    const int clamped = std::clamp(numLanes, 1, 2);
+    if (desiredLanes.exchange(clamped, std::memory_order_relaxed) == clamped)
+        return; // no change
+
+    // Rebuild the loaded model at the new width (a normal load job).
+    std::filesystem::path path;
+    {
+        std::lock_guard<std::mutex> lock(infoMutex);
+        if (!currentInfo.loaded)
+            return;
+        path = std::filesystem::path{currentInfo.path};
+    }
+    requestLoad(path);
+}
+
 ModelInfo ModelSlot::info() const
 {
     std::lock_guard<std::mutex> lock(infoMutex);
@@ -140,7 +158,7 @@ ModelInfo ModelSlot::info() const
 
 // --- worker thread ------------------------------------------------------------
 
-void ModelSlot::destroyOwned(ResamplingNam* p)
+void ModelSlot::destroyOwned(ModelPair* p)
 {
     std::lock_guard<std::mutex> lock(ownedMutex);
     if (p == lastPublished)
@@ -155,7 +173,7 @@ void ModelSlot::drainRetired()
     size_t tail = retireTail.load(std::memory_order_relaxed);
     while (tail != retireHead.load(std::memory_order_acquire))
     {
-        ResamplingNam* p = retireRing[tail];
+        ModelPair* p = retireRing[tail];
         tail = (tail + 1) % kRetireSlots;
         retireTail.store(tail, std::memory_order_release);
         destroyOwned(p);
@@ -201,8 +219,9 @@ void ModelSlot::workerLoop()
             // lastPublished may already be retired but is alive until we
             // drain it — applying slim to it then is wasted, not unsafe.
             if (lastPublished != nullptr)
-                if (auto* s = lastPublished->slimmable())
-                    s->SetSlimmableSize(slim.load(std::memory_order_relaxed));
+                for (int i = 0; i < lastPublished->numLanes; ++i)
+                    if (auto* s = lastPublished->lane[static_cast<size_t>(i)]->slimmable())
+                        s->SetSlimmableSize(slim.load(std::memory_order_relaxed));
         }
     }
 }
@@ -212,41 +231,53 @@ void ModelSlot::loadJob(const std::filesystem::path& path)
     ModelInfo newInfo;
     newInfo.path = path.string();
 
-    std::unique_ptr<ResamplingNam> wrapped;
+    auto pair = std::make_unique<ModelPair>();
     try
     {
-        std::unique_ptr<nam::DSP> model = nam::get_dsp(path);
+        const int lanes = desiredLanes.load(std::memory_order_relaxed);
 
-        if (model->NumInputChannels() != 1 || model->NumOutputChannels() != 1)
-            throw std::runtime_error("model must be 1-in/1-out, got "
-                                     + std::to_string(model->NumInputChannels()) + "-in/"
-                                     + std::to_string(model->NumOutputChannels()) + "-out");
-
-        // Build at the current engine format; if prepare() changes it while
-        // we build, rebuild before publishing.
-        for (;;)
+        for (int i = 0; i < lanes; ++i)
         {
-            const double rate = engineSampleRate.load(std::memory_order_acquire);
-            const int block = engineMaxBlock.load(std::memory_order_acquire);
+            // Two independent instances for stereo: the models are stateful,
+            // so lanes can't share one.
+            std::unique_ptr<nam::DSP> model = nam::get_dsp(path);
 
-            if (wrapped == nullptr)
-                wrapped = std::make_unique<ResamplingNam>(std::move(model), rate, block);
-            else
-                wrapped->Reset(rate, block);
+            if (model->NumInputChannels() != 1 || model->NumOutputChannels() != 1)
+                throw std::runtime_error("model must be 1-in/1-out, got "
+                                         + std::to_string(model->NumInputChannels()) + "-in/"
+                                         + std::to_string(model->NumOutputChannels()) + "-out");
 
-            if (rate == engineSampleRate.load(std::memory_order_acquire)
-                && block == engineMaxBlock.load(std::memory_order_acquire))
-                break;
+            // Build at the current engine format; if prepare() changes it
+            // while we build, rebuild before publishing.
+            std::unique_ptr<ResamplingNam> wrapped;
+            for (;;)
+            {
+                const double rate = engineSampleRate.load(std::memory_order_acquire);
+                const int block = engineMaxBlock.load(std::memory_order_acquire);
+
+                if (wrapped == nullptr)
+                    wrapped = std::make_unique<ResamplingNam>(std::move(model), rate, block);
+                else
+                    wrapped->Reset(rate, block);
+
+                if (rate == engineSampleRate.load(std::memory_order_acquire)
+                    && block == engineMaxBlock.load(std::memory_order_acquire))
+                    break;
+            }
+
+            if (auto* s = wrapped->slimmable())
+                s->SetSlimmableSize(slim.load(std::memory_order_relaxed));
+
+            pair->lane[static_cast<size_t>(i)] = std::move(wrapped);
+            pair->numLanes = i + 1;
         }
 
-        if (auto* s = wrapped->slimmable())
-            s->SetSlimmableSize(slim.load(std::memory_order_relaxed));
-
         newInfo.loaded = true;
-        newInfo.nativeSampleRate = wrapped->encapsulatedSampleRate();
-        newInfo.hasLoudness = wrapped->HasLoudness();
-        newInfo.loudness = newInfo.hasLoudness ? wrapped->GetLoudness() : 0.0;
-        newInfo.slimmable = wrapped->slimmable() != nullptr;
+        newInfo.numLanes = pair->numLanes;
+        newInfo.nativeSampleRate = pair->lane[0]->encapsulatedSampleRate();
+        newInfo.hasLoudness = pair->lane[0]->HasLoudness();
+        newInfo.loudness = newInfo.hasLoudness ? pair->lane[0]->GetLoudness() : 0.0;
+        newInfo.slimmable = pair->lane[0]->slimmable() != nullptr;
     }
     catch (const std::exception& e)
     {
@@ -256,10 +287,10 @@ void ModelSlot::loadJob(const std::filesystem::path& path)
         return;
     }
 
-    ResamplingNam* raw = wrapped.get();
+    ModelPair* raw = pair.get();
     {
         std::lock_guard<std::mutex> lock(ownedMutex);
-        owned.push_back(std::move(wrapped));
+        owned.push_back(std::move(pair));
         lastPublished = raw;
     }
 

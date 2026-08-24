@@ -28,6 +28,12 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 
     layout.add(std::make_unique<AudioParameterBool>(param_ids::irEnabled, "IR", true));
 
+    layout.add(std::make_unique<AudioParameterChoice>(
+        param_ids::channels, "Channels", StringArray{"Auto", "Mono", "Stereo"}, 0));
+
+    layout.add(std::make_unique<AudioParameterChoice>(
+        param_ids::stereoIrMode, "Stereo IR", StringArray{"Dual mono", "Mono to stereo"}, 0));
+
     return layout;
 }
 

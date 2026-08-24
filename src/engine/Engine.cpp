@@ -11,20 +11,23 @@ void Engine::prepare(const double newSampleRate, const int maxBlockSize)
     sampleRate = newSampleRate;
     maxBlock = maxBlockSize;
 
-    scratch.assign(static_cast<size_t>(maxBlock), 0.0f);
+    scratch0.assign(static_cast<size_t>(maxBlock), 0.0f);
+    scratch1.assign(static_cast<size_t>(maxBlock), 0.0f);
 
     dcBlocker.SetParams({sampleRate, kDcBlockerHz});
 
-    // Push one max-size silent block through the filter so its internal
-    // buffers reach full capacity now; std::vector keeps capacity on later
-    // shrink/regrow, so the audio thread never triggers a reallocation.
-    float* ptrs[1] = {scratch.data()};
-    (void)dcBlocker.Process(ptrs, 1, maxBlock);
+    // Push one max-size silent 2-channel block through the filter so its
+    // internal buffers reach full capacity now; the audio thread always
+    // processes it 2-channel, so it never sees a shape change.
+    float* ptrs[2] = {scratch0.data(), scratch1.data()};
+    (void)dcBlocker.Process(ptrs, 2, maxBlock);
+    std::fill(scratch0.begin(), scratch0.end(), 0.0f);
+    std::fill(scratch1.begin(), scratch1.end(), 0.0f);
 
     modelSlot.prepare(sampleRate, maxBlockSize);
 }
 
-void Engine::process(float* samples, const int numFrames)
+void Engine::process(float* const* lanes, const int numLanes, const int numFrames)
 {
     // Hosts can exceed the promised block size (offline render, freeze).
     // Rule 1: chunk, never throw.
@@ -32,25 +35,51 @@ void Engine::process(float* samples, const int numFrames)
     while (offset < numFrames)
     {
         const int n = std::min(numFrames - offset, maxBlock);
-        processChunk(samples + offset, n);
+        float* chunk[2] = {lanes[0] + offset,
+                           numLanes > 1 ? lanes[1] + offset : nullptr};
+        processChunk(chunk, numLanes, n);
         offset += n;
     }
 }
 
-void Engine::processChunk(float* samples, const int numFrames)
+void Engine::processChunk(float* const* lanes, const int numLanes, const int numFrames)
 {
-    float* inPtrs[1] = {samples};
-    float* outPtrs[1] = {scratch.data()};
+    const size_t bytes = sizeof(float) * static_cast<size_t>(numFrames);
 
-    if (ResamplingNam* model = modelSlot.render())
-        model->process(inPtrs, outPtrs, numFrames);
+    float* scratch[2] = {scratch0.data(), scratch1.data()};
+
+    if (ModelPair* pair = modelSlot.render())
+    {
+        for (int l = 0; l < numLanes; ++l)
+        {
+            if (l < pair->numLanes)
+            {
+                float* in[1] = {lanes[l]};
+                float* out[1] = {scratch[l]};
+                pair->lane[static_cast<size_t>(l)]->process(in, out, numFrames);
+            }
+            else
+            {
+                // Width transient (pair narrower than requested): reuse
+                // lane 0's OUTPUT — never its stateful model.
+                std::memcpy(scratch[l], scratch[0], bytes);
+            }
+        }
+    }
     else
-        std::memcpy(scratch.data(), samples, sizeof(float) * static_cast<size_t>(numFrames));
+    {
+        for (int l = 0; l < numLanes; ++l)
+            std::memcpy(scratch[l], lanes[l], bytes);
+    }
 
-    // (IR convolution slots in here — milestone 2b.)
+    // Unused lane stays silent so the DC blocker's constant 2-channel shape
+    // sees defined data.
+    if (numLanes < 2)
+        std::memset(scratch[1], 0, bytes);
 
-    float** dcOut = dcBlocker.Process(outPtrs, 1, numFrames);
-    std::memcpy(samples, dcOut[0], sizeof(float) * static_cast<size_t>(numFrames));
+    float** dcOut = dcBlocker.Process(scratch, 2, numFrames);
+    for (int l = 0; l < numLanes; ++l)
+        std::memcpy(lanes[l], dcOut[l], bytes);
 }
 
 } // namespace namrig::engine
