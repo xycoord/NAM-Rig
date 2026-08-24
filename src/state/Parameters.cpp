@@ -47,7 +47,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         NormalisableRange<float> r{20.0f, 120.0f, 0.1f};
         r.setSkewForCentre(50.0f);
         layout.add(std::make_unique<AudioParameterFloat>(
-            param_ids::tight, "Tight", r, 20.0f,
+            param_ids::tight, "HPF", r, 20.0f,
             AudioParameterFloatAttributes{}
                 .withStringFromValueFunction(hzToText)
                 .withValueFromStringFunction(textToHz)));
@@ -56,7 +56,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         NormalisableRange<float> r{500.0f, 20000.0f, 1.0f};
         r.setSkewForCentre(3000.0f);
         layout.add(std::make_unique<AudioParameterFloat>(
-            param_ids::tone, "Tone", r, 20000.0f,
+            param_ids::tone, "LPF", r, 20000.0f,
             AudioParameterFloatAttributes{}
                 .withStringFromValueFunction(hzToText)
                 .withValueFromStringFunction(textToHz)));

@@ -325,7 +325,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
                            "before distortion; at 20 Hz it's effectively off.");
     tightAttachment = std::make_unique<SliderAttachment>(
         state, state::param_ids::tight.getParamID(), tightSlider);
-    caption(tightCaption, "Tight");
+    caption(tightCaption, "HPF");
 
     knob(toneSlider);
     toneSlider.setTextValueSuffix({});
@@ -333,7 +333,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
                           "guitar's tone pot. Fully open = out of the path.");
     toneAttachment = std::make_unique<SliderAttachment>(
         state, state::param_ids::tone.getParamID(), toneSlider);
-    caption(toneCaption, "Tone");
+    caption(toneCaption, "LPF");
 
     knob(driveSlider);
     driveSlider.setTooltip("How hard the model is driven. The output is compensated "
