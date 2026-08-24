@@ -43,6 +43,7 @@ private:
 
     // Utility bar.
     juce::ComboBox channelsBox;
+    juce::Label channelsCaption;
     juce::Label topologyLabel;
     juce::TextButton settingsButton{"Audio Settings"}; // standalone only
     std::unique_ptr<ComboAttachment> channelsAttachment;

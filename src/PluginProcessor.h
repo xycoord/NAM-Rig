@@ -64,6 +64,9 @@ public:
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
     juce::String topologyDescription() const;
 
+    // Resolved processing width (1 or 2), for UI display.
+    int getResolvedLanes() const { return procLanes.load(std::memory_order_relaxed); }
+
     // True only when the Stereo IR policy actually affects anything: a
     // 2-channel IR while the amp would otherwise process stereo.
     bool isStereoIrPolicyRelevant() const

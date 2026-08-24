@@ -37,6 +37,10 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     attachCombo(channelsBox, state::param_ids::channels, channelsAttachment);
     channelsBox.setTooltip("Processing width. Auto follows the input bus in a DAW "
                            "and stays mono in the standalone.");
+    channelsCaption.setText("Channels", juce::dontSendNotification);
+    channelsCaption.setJustificationType(juce::Justification::centredLeft);
+    channelsCaption.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(channelsCaption);
 
     topologyLabel.setJustificationType(juce::Justification::centred);
     topologyLabel.setColour(juce::Label::textColourId, kDim);
@@ -171,6 +175,10 @@ void Editor::timerCallback()
     }
 
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
+
+    // "Auto" should say what it resolved to.
+    channelsBox.changeItemText(
+        1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
 }
 
 void Editor::chooseModel()
@@ -256,7 +264,9 @@ void Editor::resized()
     // signal enters the chain).
     {
         auto r = inputArea.withTrimmedTop(header).reduced(8);
-        channelsBox.setBounds(r.removeFromBottom(24));
+        auto channelsRow = r.removeFromBottom(24);
+        channelsCaption.setBounds(channelsRow.removeFromLeft(64));
+        channelsBox.setBounds(channelsRow);
         r.removeFromBottom(6);
         inputSlider.setBounds(r);
     }
