@@ -642,13 +642,13 @@ void Editor::resized()
     // INPUT: slim meter fused to the trim fader, centred as one unit;
     // channels below.
     {
+        // Mirror of OUT: full-height meter on the panel edge; trim column
+        // beside it.
         auto r = inputArea.withTrimmedTop(header).reduced(8, 5);
-        auto captionRow = r.removeFromTop(16);
-        auto pair = r.withSizeKeepingCentre(juce::jmin(r.getWidth(), 84), r.getHeight());
-        trimCaption.setBounds(captionRow.withX(pair.getX()).withWidth(pair.getWidth()));
-        meter.setBounds(pair.removeFromLeft(18).withTrimmedBottom(22)); // fader textbox line
-        pair.removeFromLeft(6);
-        trimSlider.setBounds(pair);
+        meter.setBounds(r.removeFromLeft(18));
+        r.removeFromLeft(8);
+        trimCaption.setBounds(r.removeFromTop(16));
+        trimSlider.setBounds(r);
     }
 
     // AMP: selector row, status line, drive knob, quality.
