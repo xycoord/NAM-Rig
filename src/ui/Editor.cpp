@@ -170,6 +170,19 @@ void Editor::StagingMeter::paint(juce::Graphics& g)
     g.fillRect(juce::Rectangle<float>{r.getX() + 2.0f, top, r.getWidth() - 4.0f,
                                       juce::jmax(0.0f, r.getBottom() - top - 2.0f)});
 
+    // dB scale: hairlines with labels, drawn over the bar.
+    g.setFont(juce::FontOptions{9.0f});
+    for (const float db : {-6.0f, -18.0f, -30.0f, -42.0f})
+    {
+        const float y = yFor(db);
+        g.setColour(kBackground.withAlpha(0.6f));
+        g.fillRect(juce::Rectangle<float>{r.getX(), y, r.getWidth(), 1.0f});
+        g.setColour(kDim);
+        g.drawText(juce::String{static_cast<int>(db)},
+                   juce::Rectangle<float>{r.getX(), y - 11.0f, r.getWidth(), 10.0f},
+                   juce::Justification::centred);
+    }
+
     if (clipped)
     {
         g.setColour(kError);
@@ -782,9 +795,13 @@ void Editor::resized()
     area.removeFromBottom(10);
 
     const int gap = 10;
-    auto outArea = area.removeFromRight(40); // meter width matches INPUT's
+    // Meters are freestanding readouts on the window ground (like the
+    // tuner), bracketing the panels.
+    auto inMeterArea = area.removeFromLeft(26);
+    area.removeFromLeft(gap);
+    auto outMeterArea = area.removeFromRight(26);
     area.removeFromRight(gap);
-    auto inputArea = area.removeFromLeft(100); // fixed: a channel strip, not a panel that grows
+    auto inputArea = area.removeFromLeft(70); // trim strip; position says what it is
     area.removeFromLeft(gap);
     const int half = (area.getWidth() - gap) * 11 / 20; // AMP slightly wider
     auto ampArea = area.removeFromLeft(half);
@@ -794,11 +811,14 @@ void Editor::resized()
     rightCol.removeFromTop(gap);
     auto verbArea = rightCol;
 
-    sections[0] = {inputArea, "INPUT", sections[0].detail};
+    sections[0] = {inputArea, "", {}};
     sections[1] = {ampArea, "AMP", sections[1].detail};
     sections[2] = {irArea, "CAB / IR", sections[2].detail};
     sections[3] = {verbArea, "REVERB", sections[3].detail};
-    sections[4] = {outArea, "OUT", sections[4].detail};
+    sections[4] = {}; // meters live outside panels now
+
+    meter.setBounds(inMeterArea);
+    outputMeter.setBounds(outMeterArea);
 
     ampPower.setBounds(ampArea.getX() + ampArea.getWidth() - 26, ampArea.getY() + 3, 18, 18);
     irPower.setBounds(irArea.getX() + irArea.getWidth() - 26, irArea.getY() + 3, 18, 18);
@@ -816,16 +836,13 @@ void Editor::resized()
 
     const int header = 20;
 
-    outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8, 5));
 
     // INPUT: slim meter fused to the trim fader, centred as one unit;
     // channels below.
     {
-        // Mirror of OUT: full-height meter on the panel edge; trim column
-        // beside it.
-        auto r = inputArea.withTrimmedTop(header).reduced(8, 5);
-        meter.setBounds(r.removeFromLeft(24)); // same width as OUT's meter
-        r.removeFromLeft(4);
+        // Trim strip: no header (its position between meter and amp says it
+        // all); just the caption and fader.
+        auto r = inputArea.reduced(8, 6);
         trimCaption.setBounds(r.removeFromTop(16));
         trimSlider.setBounds(r);
     }
