@@ -35,6 +35,9 @@ inline const juce::ParameterID channels{"channels", 1};
 inline const juce::ParameterID tight{"tight", 1};
 // Tone: 6 dB/oct low-pass like a guitar tone pot, 500 Hz .. 20 kHz (open = bypass).
 inline const juce::ParameterID tone{"tone", 1};
+// Reverb IR send level; the floor (-60) means off. No verb IR loaded =
+// the stage is skipped entirely.
+inline const juce::ParameterID verbSend{"verb_send", 1};
 // Policy for a 2ch IR under stereo processing: 0 = Dual mono (L*ch1, R*ch2),
 // 1 = Mono -> stereo (collapse, then spread through the IR pair).
 inline const juce::ParameterID stereoIrMode{"stereo_ir_mode", 1};

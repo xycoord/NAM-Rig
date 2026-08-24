@@ -45,6 +45,7 @@ Processor::Processor()
     slimParam = state.getRawParameterValue(state::param_ids::slim.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
     ampEnabledParam = state.getRawParameterValue(state::param_ids::ampEnabled.getParamID());
+    verbSendParam = state.getRawParameterValue(state::param_ids::verbSend.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
     tightParam = state.getRawParameterValue(state::param_ids::tight.getParamID());
@@ -69,7 +70,7 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     preparedBlockSize = maximumExpectedSamplesPerBlock;
     const auto sz = static_cast<size_t>(preparedBlockSize);
     for (auto* v : {&lane0, &lane1, &dry0, &dry1, &ampDry0, &ampDry1, &quadB0, &quadB1,
-                    &gainRamp})
+                    &verb0, &verb1, &gainRamp})
         v->assign(sz, 0.0f);
 
     busInputChannels = getTotalNumInputChannels();
@@ -83,6 +84,7 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     const juce::dsp::ProcessSpec spec{sampleRate, static_cast<juce::uint32>(preparedBlockSize), 2};
     convPrimary.prepare(spec);
     convQuadB.prepare(spec);
+    convVerb.prepare(spec);
 
     tightFilter.prepare(spec);
     tightFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
@@ -97,7 +99,7 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     toneFilter.setCutoffFrequency(toneParam->load());
 
     const double rampSeconds = 0.02;
-    for (auto* s : {&trimGain, &driveGain, &outputGain, &irMix, &ampMix})
+    for (auto* s : {&trimGain, &driveGain, &outputGain, &irMix, &ampMix, &verbSendGain})
         s->reset(sampleRate, rampSeconds);
     ampMix.setCurrentAndTargetValue(ampEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
     const float drive0 = driveDb->load();
@@ -160,6 +162,10 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
     tightHz.setTargetValue(tightParam->load());
     toneHz.setTargetValue(toneParam->load());
+    // Send floor = off; no verb IR = stage skipped entirely.
+    const float sendDb = verbSendParam->load();
+    verbSendGain.setTargetValue(sendDb <= -59.5f ? 0.0f
+                                                 : juce::Decibels::decibelsToGain(sendDb));
 
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)
     {
@@ -334,6 +340,46 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         {
             irMix.skip(n); // keep the smoother in real time
         }
+
+        // ---- reverb send (parallel, post-cab) ------------------------------
+        if (verbLoaded.load(std::memory_order_relaxed))
+        {
+            applyGainRamp(verbSendGain, n);
+            for (int s = 0; s < n; ++s)
+                verb0[static_cast<size_t>(s)] =
+                    lane0[static_cast<size_t>(s)] * gainRamp[static_cast<size_t>(s)];
+            const float* sendSrc = wetLanes == 2 ? lane1.data() : lane0.data();
+            for (int s = 0; s < n; ++s)
+                verb1[static_cast<size_t>(s)] =
+                    sendSrc[s] * gainRamp[static_cast<size_t>(s)];
+
+            {
+                float* ch[2] = {verb0.data(), verb1.data()};
+                juce::dsp::AudioBlock<float> block{ch, 2, static_cast<size_t>(n)};
+                juce::dsp::ProcessContextReplacing<float> ctx{block};
+                convVerb.process(ctx);
+            }
+
+            // A stereo verb IR widens the chain: duplicate the dry into
+            // lane 1 before summing the stereo return.
+            if (verbNumChannels.load(std::memory_order_relaxed) >= 2 && wetLanes == 1)
+            {
+                std::memcpy(lane1.data(), lane0.data(), bytes);
+                wetLanes = 2;
+            }
+            for (int s = 0; s < n; ++s)
+                lane0[static_cast<size_t>(s)] += verb0[static_cast<size_t>(s)];
+            if (wetLanes == 2)
+            {
+                const float* ret1 = verbNumChannels.load(std::memory_order_relaxed) >= 2
+                                        ? verb1.data()
+                                        : verb0.data();
+                for (int s = 0; s < n; ++s)
+                    lane1[static_cast<size_t>(s)] += ret1[s];
+            }
+        }
+        else
+            verbSendGain.skip(n);
 
         // ---- output gain + write out ---------------------------------------
         applyGainRamp(outputGain, n);
@@ -544,6 +590,8 @@ void Processor::capturePresetSnapshot(const juce::String& pendingModelPath)
     presetSnapshot.ampEnabled = ampEnabledParam->load() >= 0.5f;
     presetSnapshot.stereoMode = static_cast<int>(stereoIrModeParam->load());
     presetSnapshot.tight = tightParam->load();
+    presetSnapshot.verbSend = verbSendParam->load();
+    presetSnapshot.verbPath = verbPath;
     presetSnapshot.tone = toneParam->load();
 }
 
@@ -568,6 +616,10 @@ bool Processor::isPresetDirty() const
         return true;
     if (std::abs(tightParam->load() - presetSnapshot.tight) > 0.5f)
         return true;
+    if (std::abs(verbSendParam->load() - presetSnapshot.verbSend) > 0.5f)
+        return true;
+    if (verbPath != presetSnapshot.verbPath)
+        return true;
     if (std::abs(toneParam->load() - presetSnapshot.tone) > 10.0f)
         return true;
     return false;
@@ -590,6 +642,9 @@ bool Processor::savePreset(const juce::String& name)
                                   ? state::Library::toVar(library.storeModelPath(
                                         juce::File{juce::String{info.path}}))
                                   : juce::var{});
+    obj->setProperty("verb", verbPath.isNotEmpty()
+                                 ? state::Library::toVar(library.storeIrPath(juce::File{verbPath}))
+                                 : juce::var{});
     obj->setProperty("ir", irPath.isNotEmpty()
                                ? state::Library::toVar(library.storeIrPath(juce::File{irPath}))
                                : juce::var{});
@@ -600,6 +655,7 @@ bool Processor::savePreset(const juce::String& name)
     params->setProperty("ir_enabled", irEnabledParam->load() >= 0.5f);
     params->setProperty("stereo_ir_mode", static_cast<int>(stereoIrModeParam->load()));
     params->setProperty("amp_enabled", ampEnabledParam->load() >= 0.5f);
+    params->setProperty("verb_send", verbSendParam->load());
     params->setProperty("tight", tightParam->load());
     params->setProperty("tone", toneParam->load());
     // Reserved: per-model output trim for wrong-metadata models. No UI yet.
@@ -639,6 +695,16 @@ bool Processor::loadPreset(const juce::String& name)
     else
         engine.models().requestClear();
 
+    if (obj->hasProperty("verb") && obj->getProperty("verb").getDynamicObject() != nullptr)
+    {
+        const auto resolved =
+            library.resolveIrPath(state::Library::fromVar(obj->getProperty("verb")));
+        if (resolved != juce::File{})
+            loadVerbIr(resolved);
+    }
+    else
+        clearVerbIr();
+
     if (obj->hasProperty("ir") && obj->getProperty("ir").getDynamicObject() != nullptr)
     {
         const auto resolved =
@@ -661,6 +727,8 @@ bool Processor::loadPreset(const juce::String& name)
             setParamFromPreset(state::param_ids::ampEnabled,
                                static_cast<bool>(params->getProperty("amp_enabled")) ? 1.0f
                                                                                      : 0.0f);
+        if (params->hasProperty("verb_send"))
+            setParamFromPreset(state::param_ids::verbSend, params->getProperty("verb_send"));
         if (params->hasProperty("tight"))
             setParamFromPreset(state::param_ids::tight, params->getProperty("tight"));
         if (params->hasProperty("tone"))
@@ -677,6 +745,49 @@ void Processor::deletePreset(const juce::String& name)
     library.presetFile(name).deleteFile();
     if (currentPresetName == name)
         currentPresetName.clear();
+}
+
+void Processor::loadVerbIr(const juce::File& file)
+{
+    std::unique_ptr<juce::AudioFormatReader> reader{irFormats.createReaderFor(file)};
+    if (reader == nullptr)
+        return;
+
+    library.seedIrRootFrom(file);
+
+    const int numCh = static_cast<int>(reader->numChannels);
+    const auto numSamples = static_cast<int>(reader->lengthInSamples);
+    juce::AudioBuffer<float> all(numCh, numSamples);
+    reader->read(&all, 0, numSamples, 0, true, true);
+
+    double sumSq = 0.0;
+    for (int c = 0; c < numCh; ++c)
+        for (int i = 0; i < numSamples; ++i)
+            sumSq += static_cast<double>(all.getSample(c, i)) * all.getSample(c, i);
+    if (sumSq <= 0.0)
+        return;
+    all.applyGain(static_cast<float>(1.0 / std::sqrt(sumSq)));
+
+    juce::AudioBuffer<float> b(juce::jmin(numCh, 2), numSamples);
+    for (int c = 0; c < b.getNumChannels(); ++c)
+        b.copyFrom(c, 0, all, c, 0, numSamples);
+
+    using Stereo = juce::dsp::Convolution::Stereo;
+    using Trim = juce::dsp::Convolution::Trim;
+    using Normalise = juce::dsp::Convolution::Normalise;
+    convVerb.loadImpulseResponse(std::move(b), reader->sampleRate,
+                                 numCh >= 2 ? Stereo::yes : Stereo::no, Trim::no,
+                                 Normalise::no);
+    verbNumChannels.store(juce::jmin(numCh, 2), std::memory_order_relaxed);
+    verbPath = file.getFullPathName();
+    verbLoaded.store(true, std::memory_order_relaxed);
+}
+
+void Processor::clearVerbIr()
+{
+    verbLoaded.store(false, std::memory_order_relaxed);
+    verbNumChannels.store(0, std::memory_order_relaxed);
+    verbPath.clear();
 }
 
 juce::AudioProcessorEditor* Processor::createEditor()
@@ -702,6 +813,13 @@ void Processor::getStateInformation(juce::MemoryBlock& destData)
         tree.setProperty("irPath", juce::String{sp.absolute}, nullptr);
         tree.setProperty("irRel", juce::String{sp.relative}, nullptr);
         tree.setProperty("irFile", juce::String{sp.filename}, nullptr);
+    }
+    if (verbPath.isNotEmpty())
+    {
+        const auto sp = library.storeIrPath(juce::File{verbPath});
+        tree.setProperty("verbPath", juce::String{sp.absolute}, nullptr);
+        tree.setProperty("verbRel", juce::String{sp.relative}, nullptr);
+        tree.setProperty("verbFile", juce::String{sp.filename}, nullptr);
     }
     tree.setProperty("presetName", currentPresetName, nullptr);
     if (auto xml = tree.createXml())
@@ -736,6 +854,17 @@ void Processor::setStateInformation(const void* data, int sizeInBytes)
                 const auto resolved = library.resolveIrPath(ir);
                 if (resolved != juce::File{})
                     loadIr(resolved);
+            }
+
+            state::StoredPath verb;
+            verb.absolute = tree.getProperty("verbPath", juce::String{}).toString().toStdString();
+            verb.relative = tree.getProperty("verbRel", juce::String{}).toString().toStdString();
+            verb.filename = tree.getProperty("verbFile", juce::String{}).toString().toStdString();
+            if (!verb.empty())
+            {
+                const auto resolved = library.resolveIrPath(verb);
+                if (resolved != juce::File{})
+                    loadVerbIr(resolved);
             }
 
             currentPresetName = tree.getProperty("presetName", juce::String{}).toString();

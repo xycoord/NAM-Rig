@@ -62,6 +62,12 @@ public:
     juce::String getIrPath() const { return irPath; }
     bool isIrLoaded() const { return irLoaded.load(std::memory_order_relaxed); }
 
+    // Reverb IR (parallel send, post-cab).
+    void loadVerbIr(const juce::File& file);
+    void clearVerbIr();
+    juce::String getVerbPath() const { return verbPath; }
+    bool isVerbLoaded() const { return verbLoaded.load(std::memory_order_relaxed); }
+
     // Presets (message thread). A preset is THE SOUND: model, IR, IR on/off,
     // Drive, Quality, stereo-IR policy (+ reserved per-model trim). Trim and
     // Channels are machine/context state and are never touched by presets.
@@ -129,7 +135,8 @@ private:
     {
         bool valid = false;
         juce::String modelPath, irPath;
-        float drive = 0, quality = 0, tight = 20, tone = 20000;
+        float drive = 0, quality = 0, tight = 20, tone = 20000, verbSend = -20;
+        juce::String verbPath;
         bool irEnabled = true, ampEnabled = true;
         int stereoMode = 0;
     } presetSnapshot;
@@ -143,6 +150,7 @@ private:
     std::atomic<float>* slimParam = nullptr;
     std::atomic<float>* irEnabledParam = nullptr;
     std::atomic<float>* ampEnabledParam = nullptr;
+    std::atomic<float>* verbSendParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
     std::atomic<float>* tightParam = nullptr;
@@ -160,7 +168,7 @@ private:
     // outputGain: measured-rise compensation + normalization (no user volume
     // in Raw — raw means raw).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> trimGain, driveGain, outputGain,
-        irMix, ampMix;
+        irMix, ampMix, verbSendGain;
 
     // Post-trim input peak for the staging meter (audio writes, UI consumes).
     std::atomic<float> inputPeak{0.0f};
@@ -176,14 +184,18 @@ private:
 
     // IR stage. convPrimary serves 1ch and 2ch IRs (and the LL/LR half of a
     // quad); convQuadB is the RL/RR half, processed only in quad topology.
-    juce::dsp::Convolution convPrimary, convQuadB;
+    juce::dsp::Convolution convPrimary, convQuadB, convVerb;
     juce::AudioFormatManager irFormats;
     juce::String irPath;
     std::atomic<bool> irLoaded{false};
     std::atomic<int> irNumChannels{0};
+    juce::String verbPath;
+    std::atomic<bool> verbLoaded{false};
+    std::atomic<int> verbNumChannels{0};
 
     // Preallocated lane workspaces (prepareToPlay).
-    std::vector<float> lane0, lane1, dry0, dry1, ampDry0, ampDry1, quadB0, quadB1, gainRamp;
+    std::vector<float> lane0, lane1, dry0, dry1, ampDry0, ampDry1, quadB0, quadB1, verb0,
+        verb1, gainRamp;
     int preparedBlockSize = 0;
     int busInputChannels = 2, busOutputChannels = 2; // cached for resolve
 

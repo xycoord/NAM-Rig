@@ -390,6 +390,20 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     irRow.clear.onClick = [this] { processor.clearIr(); };
     irRow.name.setTooltip("Click to pick an IR; arrows step through its folder.");
 
+    verbRow.addTo(*this);
+    verbRow.name.onClick = [this] { chooseVerb(); };
+    verbRow.prev.onClick = [this] { stepVerb(-1); };
+    verbRow.next.onClick = [this] { stepVerb(1); };
+    verbRow.clear.onClick = [this] { processor.clearVerbIr(); };
+    verbRow.name.setTooltip("Click to pick a reverb IR; arrows step through its folder.");
+
+    knob(sendSlider, -20.0);
+    sendSlider.setTooltip("Reverb send level. At the floor the send is off; "
+                          "with no reverb IR loaded nothing is sent at all.");
+    sendAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::verbSend.getParamID(), sendSlider);
+    caption(sendCaption, "Send");
+
     attachCombo(stereoIrBox, state::param_ids::stereoIrMode, stereoIrAttachment);
     stereoIrBox.setTooltip("How a 2-channel IR is used when processing in stereo: "
                            "one channel per side, or collapse to mono and spread.");
@@ -444,6 +458,13 @@ void Editor::timerCallback()
     }
     if (showQuality)
         syncQualitySelection();
+
+    verbRow.name.setButtonText(processor.isVerbLoaded()
+                                   ? juce::File{processor.getVerbPath()}
+                                         .getFileNameWithoutExtension()
+                                   : juce::String{"Select reverb IR..."});
+    verbRow.clear.setEnabled(processor.isVerbLoaded());
+    sendSlider.setEnabled(processor.isVerbLoaded());
 
     irRow.name.setButtonText(processor.isIrLoaded()
                                  ? juce::File{processor.getIrPath()}
@@ -628,6 +649,31 @@ void Editor::chooseModel()
                              });
 }
 
+void Editor::stepVerb(const int delta)
+{
+    const juce::File current{processor.getVerbPath()};
+    const auto dir = processor.isVerbLoaded() ? current.getParentDirectory()
+                                              : processor.getLibrary().irRoot();
+    const auto target =
+        stepIn(listSorted(dir, "*.wav;*.aif;*.aiff;*.flac"), current, delta);
+    if (target.existsAsFile())
+        processor.loadVerbIr(target);
+}
+
+void Editor::chooseVerb()
+{
+    fileChooser = std::make_unique<juce::FileChooser>("Load reverb impulse response",
+                                                      juce::File{},
+                                                      "*.wav;*.aif;*.aiff;*.flac");
+    fileChooser->launchAsync(juce::FileBrowserComponent::openMode
+                                 | juce::FileBrowserComponent::canSelectFiles,
+                             [this](const juce::FileChooser& fc) {
+                                 const auto file = fc.getResult();
+                                 if (file.existsAsFile())
+                                     processor.loadVerbIr(file);
+                             });
+}
+
 void Editor::chooseIr()
 {
     fileChooser = std::make_unique<juce::FileChooser>("Load impulse response", juce::File{},
@@ -705,12 +751,16 @@ void Editor::resized()
     const int half = (area.getWidth() - gap) * 11 / 20; // AMP slightly wider
     auto ampArea = area.removeFromLeft(half);
     area.removeFromLeft(gap);
-    auto irArea = area;
+    auto rightCol = area;
+    auto irArea = rightCol.removeFromTop((rightCol.getHeight() - gap) * 11 / 20);
+    rightCol.removeFromTop(gap);
+    auto verbArea = rightCol;
 
     sections[0] = {inputArea, "INPUT"};
     sections[1] = {ampArea, "AMP"};
     sections[2] = {irArea, "CAB / IR"};
-    sections[3] = {outArea, "OUT"};
+    sections[3] = {verbArea, "REVERB"};
+    sections[4] = {outArea, "OUT"};
 
     ampPower.setBounds(ampArea.getX() + ampArea.getWidth() - 26, ampArea.getY() + 3, 18, 18);
     irPower.setBounds(irArea.getX() + irArea.getWidth() - 26, irArea.getY() + 3, 18, 18);
@@ -789,6 +839,22 @@ void Editor::resized()
         r.removeFromTop(8);
         if (stereoIrBox.isVisible())
             stereoIrBox.setBounds(r.removeFromTop(24).removeFromLeft(140));
+    }
+
+    // REVERB: selector row + send knob.
+    {
+        auto r = verbArea.withTrimmedTop(header).reduced(10, 6);
+        verbRow.layout(r.removeFromTop(26));
+        r.removeFromTop(4);
+        const int labelH = 15;
+        const int dia = juce::jmin(r.getWidth(), r.getHeight() - labelH) - 2;
+        if (dia > 20)
+        {
+            const auto knobArea = juce::Rectangle<int>{dia, dia}.withCentre(
+                {r.getCentreX(), r.getY() + (r.getHeight() - dia - labelH) / 3 + dia / 2});
+            sendSlider.setBounds(knobArea);
+            sendCaption.setBounds(r.getX(), knobArea.getBottom() - 7, r.getWidth(), labelH);
+        }
     }
 
 }

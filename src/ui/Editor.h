@@ -85,7 +85,7 @@ private:
         juce::Rectangle<int> frame;
         const char* title = "";
     };
-    std::array<Section, 4> sections;
+    std::array<Section, 5> sections;
 
     TunerStrip tunerStrip;
 
@@ -273,6 +273,14 @@ private:
 
     // CAB / IR.
     SelectorRow irRow;
+
+    // REVERB (parallel IR send).
+    SelectorRow verbRow;
+    juce::Label sendCaption;
+    KnobSlider sendSlider;
+    std::unique_ptr<SliderAttachment> sendAttachment;
+    void stepVerb(int delta);
+    void chooseVerb();
     juce::ComboBox stereoIrBox; // visible only when it means something
     std::unique_ptr<ButtonAttachment> irToggleAttachment;
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
