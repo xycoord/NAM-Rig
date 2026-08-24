@@ -4,6 +4,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include "Theme.h"
+
 namespace namrig
 {
 
@@ -97,6 +99,8 @@ private:
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
+    theme::LookAndFeel lookAndFeel;
+    juce::TooltipWindow tooltips{this};
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Editor)
 };

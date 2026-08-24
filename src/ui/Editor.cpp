@@ -11,15 +11,15 @@ namespace namrig
 
 namespace
 {
-// Placeholder palette; the real theme arrives in milestone 4.
-const juce::Colour kBackground{0xff1d1a1f};
-const juce::Colour kPanel{0xff232028};
-const juce::Colour kFrame{0xff37333e};
-const juce::Colour kText{0xffe6e8ec};
-const juce::Colour kError{0xffe38a82};
-const juce::Colour kDim{0xff85818f};
-const juce::Colour kAccent{0xff7fa8f2};
-const juce::Colour kOk{0xff77c79b};
+using namespace theme::colours;
+const juce::Colour kBackground = background;
+const juce::Colour kPanel = panel;
+const juce::Colour kFrame = outline;
+const juce::Colour kText = textPrimary;
+const juce::Colour kError = error;
+const juce::Colour kDim = textSecondary;
+const juce::Colour kAccent = accent;
+const juce::Colour kOk = ok;
 
 // Staging meter scale and target zone (peak dBFS, post-trim). The zone is
 // where the HARDEST playing should peak, anchored to upstream's reference
@@ -45,7 +45,7 @@ void Editor::StagingMeter::setLevel(const float peakLinear)
 void Editor::StagingMeter::paint(juce::Graphics& g)
 {
     auto r = getLocalBounds().toFloat();
-    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.setColour(inset);
     g.fillRoundedRectangle(r, 3.0f);
 
     auto yFor = [&](float db) {
@@ -80,6 +80,7 @@ void Editor::StagingMeter::paint(juce::Graphics& g)
 
 Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 {
+    setLookAndFeel(&lookAndFeel);
     auto& state = processor.getState();
 
     auto attachCombo = [&](juce::ComboBox& box, const juce::ParameterID& id,
@@ -249,7 +250,10 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     timerCallback();
 }
 
-Editor::~Editor() = default;
+Editor::~Editor()
+{
+    setLookAndFeel(nullptr);
+}
 
 void Editor::timerCallback()
 {
@@ -377,8 +381,8 @@ void Editor::paint(juce::Graphics& g)
         g.fillRoundedRectangle(section.frame.toFloat(), 6.0f);
         g.setColour(kFrame);
         g.drawRoundedRectangle(section.frame.toFloat(), 6.0f, 1.0f);
-        g.setColour(kAccent);
-        g.setFont(juce::FontOptions{12.0f}.withStyle("Bold"));
+        g.setColour(kDim);
+        g.setFont(juce::FontOptions{11.0f}.withStyle("Bold")); // header: quiet, not accent
         g.drawText(section.title, section.frame.withHeight(22).reduced(10, 0),
                    juce::Justification::centredLeft);
     }
