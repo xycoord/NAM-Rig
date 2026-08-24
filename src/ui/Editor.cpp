@@ -236,23 +236,16 @@ void Editor::timerCallback()
         resized();
     }
 
-    // Normalization status: applied offset, or missing metadata (never a
-    // silent fallback).
-    if (!info.loaded)
-        normStatusLabel.setText({}, juce::dontSendNotification);
-    else if (!info.hasLoudness)
+    // Level management working correctly is invisible; only the case that
+    // needs the user's attention gets a line (never a silent fallback).
+    if (info.loaded && !info.hasLoudness)
     {
         normStatusLabel.setColour(juce::Label::textColourId, kError);
-        normStatusLabel.setText("no loudness data - level unmanaged",
+        normStatusLabel.setText("volume not managed (model lacks loudness data)",
                                 juce::dontSendNotification);
     }
     else
-    {
-        normStatusLabel.setColour(juce::Label::textColourId, kDim);
-        normStatusLabel.setText("level " + juce::String(processor.getNormalizationOffsetDb(), 1)
-                                    + " dB",
-                                juce::dontSendNotification);
-    }
+        normStatusLabel.setText({}, juce::dontSendNotification);
 
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
     channelsBox.changeItemText(
