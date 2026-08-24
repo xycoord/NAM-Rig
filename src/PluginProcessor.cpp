@@ -46,6 +46,7 @@ Processor::Processor()
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
     ampEnabledParam = state.getRawParameterValue(state::param_ids::ampEnabled.getParamID());
     verbSendParam = state.getRawParameterValue(state::param_ids::verbSend.getParamID());
+    verbEnabledParam = state.getRawParameterValue(state::param_ids::verbEnabled.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
     tightParam = state.getRawParameterValue(state::param_ids::tight.getParamID());
@@ -162,10 +163,13 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
     tightHz.setTargetValue(tightParam->load());
     toneHz.setTargetValue(toneParam->load());
-    // Send floor = off; no verb IR = stage skipped entirely.
+    // Send floor = off; bypass fades the send to zero but keeps the
+    // convolution running while an IR is loaded, so the tail rings out.
     const float sendDb = verbSendParam->load();
-    verbSendGain.setTargetValue(sendDb <= -59.5f ? 0.0f
-                                                 : juce::Decibels::decibelsToGain(sendDb));
+    const bool verbOn = verbEnabledParam->load() >= 0.5f;
+    verbSendGain.setTargetValue((verbOn && sendDb > -59.5f)
+                                    ? juce::Decibels::decibelsToGain(sendDb)
+                                    : 0.0f);
 
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)
     {
@@ -591,6 +595,7 @@ void Processor::capturePresetSnapshot(const juce::String& pendingModelPath)
     presetSnapshot.stereoMode = static_cast<int>(stereoIrModeParam->load());
     presetSnapshot.tight = tightParam->load();
     presetSnapshot.verbSend = verbSendParam->load();
+    presetSnapshot.verbEnabled = verbEnabledParam->load() >= 0.5f;
     presetSnapshot.verbPath = verbPath;
     presetSnapshot.tone = toneParam->load();
 }
@@ -619,6 +624,8 @@ bool Processor::isPresetDirty() const
     if (std::abs(verbSendParam->load() - presetSnapshot.verbSend) > 0.5f)
         return true;
     if (verbPath != presetSnapshot.verbPath)
+        return true;
+    if ((verbEnabledParam->load() >= 0.5f) != presetSnapshot.verbEnabled)
         return true;
     if (std::abs(toneParam->load() - presetSnapshot.tone) > 10.0f)
         return true;
@@ -656,6 +663,7 @@ bool Processor::savePreset(const juce::String& name)
     params->setProperty("stereo_ir_mode", static_cast<int>(stereoIrModeParam->load()));
     params->setProperty("amp_enabled", ampEnabledParam->load() >= 0.5f);
     params->setProperty("verb_send", verbSendParam->load());
+    params->setProperty("verb_enabled", verbEnabledParam->load() >= 0.5f);
     params->setProperty("tight", tightParam->load());
     params->setProperty("tone", toneParam->load());
     // Reserved: per-model output trim for wrong-metadata models. No UI yet.
@@ -727,6 +735,10 @@ bool Processor::loadPreset(const juce::String& name)
             setParamFromPreset(state::param_ids::ampEnabled,
                                static_cast<bool>(params->getProperty("amp_enabled")) ? 1.0f
                                                                                      : 0.0f);
+        if (params->hasProperty("verb_enabled"))
+            setParamFromPreset(state::param_ids::verbEnabled,
+                               static_cast<bool>(params->getProperty("verb_enabled")) ? 1.0f
+                                                                                      : 0.0f);
         if (params->hasProperty("verb_send"))
             setParamFromPreset(state::param_ids::verbSend, params->getProperty("verb_send"));
         if (params->hasProperty("tight"))

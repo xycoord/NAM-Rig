@@ -44,6 +44,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     layout.add(std::make_unique<AudioParameterBool>(param_ids::irEnabled, "IR", true));
     layout.add(std::make_unique<AudioParameterBool>(param_ids::ampEnabled, "Amp", true));
 
+    layout.add(std::make_unique<AudioParameterBool>(param_ids::verbEnabled, "Reverb", true));
     layout.add(std::make_unique<AudioParameterFloat>(
         param_ids::verbSend, "Reverb Send", NormalisableRange<float>{-60.0f, 0.0f, 0.1f},
         -20.0f, AudioParameterFloatAttributes{}.withLabel("dB")));

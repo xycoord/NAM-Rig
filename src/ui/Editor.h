@@ -267,8 +267,9 @@ private:
     void rebuildQualityLevels(const std::vector<double>& breakpoints);
     void syncQualitySelection();
 
-    PowerButton ampPower, irPower;
-    DimOverlay ampDim, irDim;
+    PowerButton ampPower, irPower, verbPower;
+    DimOverlay ampDim, irDim, verbDim;
+    std::unique_ptr<ButtonAttachment> verbPowerAttachment;
     std::unique_ptr<ButtonAttachment> ampPowerAttachment, irPowerAttachment;
 
     // CAB / IR.

@@ -35,6 +35,8 @@ inline const juce::ParameterID channels{"channels", 1};
 inline const juce::ParameterID tight{"tight", 1};
 // Tone: 6 dB/oct low-pass like a guitar tone pot, 500 Hz .. 20 kHz (open = bypass).
 inline const juce::ParameterID tone{"tone", 1};
+// Reverb on/off (IR stays loaded; the tail rings out on bypass).
+inline const juce::ParameterID verbEnabled{"verb_enabled", 1};
 // Reverb IR send level; the floor (-60) means off. No verb IR loaded =
 // the stage is skipped entirely.
 inline const juce::ParameterID verbSend{"verb_send", 1};

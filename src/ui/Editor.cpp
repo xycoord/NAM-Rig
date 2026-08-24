@@ -380,8 +380,15 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         state, state::param_ids::irEnabled.getParamID(), irPower);
     irPower.onStateChange = [this] { irDim.setVisible(!irPower.getToggleState()); };
 
+    addAndMakeVisible(verbPower);
+    verbPower.setTooltip("Reverb on/off (the tail rings out on bypass)");
+    verbPowerAttachment = std::make_unique<ButtonAttachment>(
+        state, state::param_ids::verbEnabled.getParamID(), verbPower);
+    verbPower.onStateChange = [this] { verbDim.setVisible(!verbPower.getToggleState()); };
+
     addChildComponent(ampDim);
     addChildComponent(irDim);
+    addChildComponent(verbDim);
 
     irRow.addTo(*this);
     irRow.name.onClick = [this] { chooseIr(); };
@@ -752,7 +759,7 @@ void Editor::resized()
     auto ampArea = area.removeFromLeft(half);
     area.removeFromLeft(gap);
     auto rightCol = area;
-    auto irArea = rightCol.removeFromTop((rightCol.getHeight() - gap) * 11 / 20);
+    auto irArea = rightCol.removeFromTop((rightCol.getHeight() - gap) * 2 / 5);
     rightCol.removeFromTop(gap);
     auto verbArea = rightCol;
 
@@ -764,12 +771,17 @@ void Editor::resized()
 
     ampPower.setBounds(ampArea.getX() + ampArea.getWidth() - 26, ampArea.getY() + 3, 18, 18);
     irPower.setBounds(irArea.getX() + irArea.getWidth() - 26, irArea.getY() + 3, 18, 18);
+    verbPower.setBounds(verbArea.getX() + verbArea.getWidth() - 26, verbArea.getY() + 3, 18,
+                        18);
     ampDim.setBounds(ampArea.withTrimmedTop(22));
     irDim.setBounds(irArea.withTrimmedTop(22));
+    verbDim.setBounds(verbArea.withTrimmedTop(22));
     ampDim.setVisible(!ampPower.getToggleState());
     irDim.setVisible(!irPower.getToggleState());
+    verbDim.setVisible(!verbPower.getToggleState());
     ampDim.toFront(false);
     irDim.toFront(false);
+    verbDim.toFront(false);
 
     const int header = 20;
 

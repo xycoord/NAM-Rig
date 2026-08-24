@@ -137,7 +137,7 @@ private:
         juce::String modelPath, irPath;
         float drive = 0, quality = 0, tight = 20, tone = 20000, verbSend = -20;
         juce::String verbPath;
-        bool irEnabled = true, ampEnabled = true;
+        bool irEnabled = true, ampEnabled = true, verbEnabled = true;
         int stereoMode = 0;
     } presetSnapshot;
     void capturePresetSnapshot(const juce::String& pendingModelPath);
@@ -151,6 +151,7 @@ private:
     std::atomic<float>* irEnabledParam = nullptr;
     std::atomic<float>* ampEnabledParam = nullptr;
     std::atomic<float>* verbSendParam = nullptr;
+    std::atomic<float>* verbEnabledParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
     std::atomic<float>* tightParam = nullptr;
