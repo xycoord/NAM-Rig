@@ -68,17 +68,26 @@ void Editor::TunerStrip::setReading(const float freqHz, const float clarity)
 void Editor::TunerStrip::paint(juce::Graphics& g)
 {
     // Frameless: the tuner is a readout, not a control group — it floats
-    // on the window ground.
+    // on the window ground. The axis is always present (this IS a tuner,
+    // signal or not); note and indicator appear only with a confident pitch.
     auto r = getLocalBounds().toFloat();
     const auto centreX = r.getCentreX();
 
-    if (noteIndex < 0)
+    const float scaleW = r.getWidth() - 16.0f;
+    const float scaleY = r.getBottom() - 8.0f;
+    const float left = centreX - scaleW / 2.0f;
+    g.setColour(kFrame);
+    g.fillRect(juce::Rectangle<float>{left, scaleY, scaleW, 2.0f});
+    for (const float c : {-50.0f, -25.0f, 0.0f, 25.0f, 50.0f})
     {
-        g.setColour(kDim.withAlpha(0.6f));
-        g.setFont(juce::FontOptions{22.0f});
-        g.drawText("-", getLocalBounds(), juce::Justification::centred);
-        return;
+        const float x = centreX + (c / 50.0f) * (scaleW / 2.0f);
+        const float h = c == 0.0f ? 8.0f : 5.0f;
+        g.setColour(c == 0.0f ? kDim : kFrame);
+        g.fillRect(juce::Rectangle<float>{x - 1.0f, scaleY + 1.0f - h, 2.0f, h});
     }
+
+    if (noteIndex < 0)
+        return;
 
     static const char* names[12] = {"C",  "C#", "D",  "D#", "E",  "F",
                                     "F#", "G",  "G#", "A",  "A#", "B"};
@@ -88,8 +97,8 @@ void Editor::TunerStrip::paint(juce::Graphics& g)
     // Note (hero) + octave + signed cents.
     const auto noteColour = inTune ? kOk : kText;
     g.setColour(noteColour);
-    g.setFont(juce::FontOptions{30.0f}.withStyle("Bold"));
-    auto noteArea = getLocalBounds().withHeight(getHeight() * 2 / 3);
+    g.setFont(juce::FontOptions{28.0f}.withStyle("Bold"));
+    auto noteArea = getLocalBounds().withHeight(getHeight() - 16);
     g.drawText(name, noteArea, juce::Justification::centred);
 
     g.setFont(juce::FontOptions{13.0f});
@@ -109,20 +118,6 @@ void Editor::TunerStrip::paint(juce::Graphics& g)
     g.drawText(centsText,
                noteArea.withX(static_cast<int>(centreX + noteWidth / 2 + 26)).withWidth(60),
                juce::Justification::centredLeft);
-
-    // Deviation scale: +/-50 cents, ticks at 0 / 25 / 50.
-    const float scaleW = r.getWidth() - 16.0f; // full width, small inset
-    const float scaleY = r.getBottom() - 14.0f;
-    const float left = centreX - scaleW / 2.0f;
-    g.setColour(kFrame);
-    g.fillRect(juce::Rectangle<float>{left, scaleY, scaleW, 2.0f});
-    for (const float c : {-50.0f, -25.0f, 0.0f, 25.0f, 50.0f})
-    {
-        const float x = centreX + (c / 50.0f) * (scaleW / 2.0f);
-        const float h = c == 0.0f ? 8.0f : 5.0f;
-        g.setColour(c == 0.0f ? kDim : kFrame);
-        g.fillRect(juce::Rectangle<float>{x - 1.0f, scaleY + 1.0f - h, 2.0f, h});
-    }
 
     // Bar from centre: right = sharp, left = flat. Green only in tune.
     const float clamped = juce::jlimit(-50.0f, 50.0f, centsSmoothed);
@@ -568,8 +563,8 @@ void Editor::resized()
 {
     auto area = getLocalBounds().reduced(14);
 
-    tunerStrip.setBounds(area.removeFromTop(58));
-    area.removeFromTop(10);
+    tunerStrip.setBounds(area.removeFromTop(48));
+    area.removeFromTop(6);
 
     auto utility = area.removeFromBottom(26);
     presetBox.setBounds(utility.removeFromLeft(180));
