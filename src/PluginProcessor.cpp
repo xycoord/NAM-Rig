@@ -510,28 +510,28 @@ void Processor::resolveTopology()
     engine.models().setLanes(lanes);
 }
 
-juce::String Processor::topologyDescription() const
+juce::String Processor::cabIrModeText() const
 {
+    const int ch = irNumChannels.load(std::memory_order_relaxed);
+    if (!irLoaded.load(std::memory_order_relaxed) || ch <= 0)
+        return {};
     const int lanes = procLanes.load(std::memory_order_relaxed);
     const auto topo = static_cast<IrTopology>(irTopology.load(std::memory_order_relaxed));
+    if (ch == 1)
+        return lanes == 2 ? "mono \xc3\x97 2" : "mono";
+    if (topo == IrTopology::quad)
+        return "true stereo";
+    if (topo == IrTopology::monoToStereo)
+        return "mono \xe2\x86\x92 stereo";
+    return "dual mono";
+}
 
-    juce::String s;
-    s << (busInputChannels >= 2 ? "stereo in" : "mono in");
-    s << (lanes == 2 ? " \xe2\x86\x92 2\xc3\x97 amp" : " \xe2\x86\x92 amp");
-    switch (topo)
-    {
-        case IrTopology::none: break;
-        case IrTopology::simple:
-            s << (lanes == 2 ? " \xe2\x86\x92 IR (dual)" : " \xe2\x86\x92 IR");
-            break;
-        case IrTopology::monoToStereo: s << " \xe2\x86\x92 IR (mono\xe2\x86\x92stereo)"; break;
-        case IrTopology::quad: s << " \xe2\x86\x92 IR (true stereo)"; break;
-    }
-    const bool stereoOut =
-        (lanes == 2 || topo == IrTopology::monoToStereo || topo == IrTopology::quad)
-        && busOutputChannels >= 2;
-    s << (stereoOut ? " \xe2\x86\x92 stereo out" : " \xe2\x86\x92 mono out");
-    return s;
+juce::String Processor::verbIrModeText() const
+{
+    const int ch = verbNumChannels.load(std::memory_order_relaxed);
+    if (!verbLoaded.load(std::memory_order_relaxed) || ch <= 0)
+        return {};
+    return ch >= 2 ? "stereo" : "mono";
 }
 
 void Processor::timerCallback()

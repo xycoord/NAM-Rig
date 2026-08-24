@@ -79,8 +79,9 @@ public:
     // True when the current sound diverges from the loaded preset.
     bool isPresetDirty() const;
 
-    // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
-    juce::String topologyDescription() const;
+    // How each IR resolved, for the section headers ("" = no IR).
+    juce::String cabIrModeText() const;
+    juce::String verbIrModeText() const;
 
     // Post-trim input peak since last call (linear); for the staging meter.
     float consumeInputPeak() { return inputPeak.exchange(0.0f, std::memory_order_relaxed); }

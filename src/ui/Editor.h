@@ -84,6 +84,7 @@ private:
     {
         juce::Rectangle<int> frame;
         const char* title = "";
+        juce::String detail; // e.g. the IR's resolved topology
     };
     std::array<Section, 5> sections;
 
@@ -95,7 +96,6 @@ private:
     juce::TextButton savePresetButton{"Save..."};
     juce::TextButton deletePresetButton{"Delete"};
     bool deleteArmed = false;
-    juce::Label topologyLabel;
     juce::TextButton settingsButton{"Audio Settings"}; // standalone only
     void refreshPresetList();
     void promptSavePreset();

@@ -279,10 +279,6 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     presetNameEditor.onFocusLost = dismiss;
     addChildComponent(presetNameEditor);
 
-    topologyLabel.setJustificationType(juce::Justification::centred);
-    topologyLabel.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(topologyLabel);
-
     if (juce::JUCEApplicationBase::isStandaloneApp())
     {
         settingsButton.onClick = [] {
@@ -541,7 +537,6 @@ void Editor::timerCallback()
             presetBox.setTextWhenNothingSelected(shown);
     }
 
-    topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
     channelsBox.changeItemText(
         1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
 }
@@ -750,8 +745,18 @@ void Editor::paint(juce::Graphics& g)
         g.drawRoundedRectangle(section.frame.toFloat(), 6.0f, 1.0f);
         g.setColour(kDim);
         g.setFont(juce::FontOptions{11.0f}.withStyle("Bold")); // header: quiet, not accent
-        g.drawText(section.title, section.frame.withHeight(22).reduced(10, 0),
-                   juce::Justification::centredLeft);
+        auto headerArea = section.frame.withHeight(22).reduced(10, 0);
+        g.drawText(section.title, headerArea, juce::Justification::centredLeft);
+        if (section.detail.isNotEmpty())
+        {
+            const int titleW = juce::GlyphArrangement::getStringWidthInt(
+                juce::Font{juce::FontOptions{11.0f}.withStyle("Bold")}, section.title);
+            g.setFont(juce::FontOptions{11.0f});
+            g.setColour(kDim.withAlpha(0.75f));
+            g.drawText(juce::String{juce::CharPointer_UTF8{" \xc2\xb7 "}} + section.detail,
+                       headerArea.withTrimmedLeft(titleW + 2),
+                       juce::Justification::centredLeft);
+        }
     }
 }
 
@@ -774,7 +779,6 @@ void Editor::resized()
         settingsButton.setBounds(utility.removeFromRight(110));
         utility.removeFromRight(10);
     }
-    topologyLabel.setBounds(utility);
     area.removeFromBottom(10);
 
     const int gap = 10;
@@ -790,11 +794,11 @@ void Editor::resized()
     rightCol.removeFromTop(gap);
     auto verbArea = rightCol;
 
-    sections[0] = {inputArea, "INPUT"};
-    sections[1] = {ampArea, "AMP"};
-    sections[2] = {irArea, "CAB / IR"};
-    sections[3] = {verbArea, "REVERB"};
-    sections[4] = {outArea, "OUT"};
+    sections[0] = {inputArea, "INPUT", sections[0].detail};
+    sections[1] = {ampArea, "AMP", sections[1].detail};
+    sections[2] = {irArea, "CAB / IR", sections[2].detail};
+    sections[3] = {verbArea, "REVERB", sections[3].detail};
+    sections[4] = {outArea, "OUT", sections[4].detail};
 
     ampPower.setBounds(ampArea.getX() + ampArea.getWidth() - 26, ampArea.getY() + 3, 18, 18);
     irPower.setBounds(irArea.getX() + irArea.getWidth() - 26, irArea.getY() + 3, 18, 18);
