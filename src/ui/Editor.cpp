@@ -198,15 +198,21 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         label.setColour(juce::Label::textColourId, kDim);
         addAndMakeVisible(label);
     };
-    auto knob = [this](juce::Slider& slider, double defaultValue) {
+    auto knob = [this](KnobSlider& slider, double defaultValue) {
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
         slider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0); // value drawn in-knob
         slider.setTextValueSuffix(" dB");
         slider.setDoubleClickReturnValue(true, defaultValue);
         slider.setVelocityModeParameters(1.0, 1, 0.0, true,
                                          juce::ModifierKeys::shiftModifier); // shift = fine
+        slider.onValueClick = [this, &slider] { openKnobValueEditor(slider); };
         addAndMakeVisible(slider);
     };
+
+    knobValueEditor.setVisible(false);
+    knobValueEditor.setJustification(juce::Justification::centred);
+    knobValueEditor.setSelectAllWhenFocused(true);
+    addChildComponent(knobValueEditor);
 
     // --- utility bar ---
     presetBox.setTextWhenNothingSelected("Presets");
@@ -515,6 +521,25 @@ void Editor::stepIr(const int delta)
         stepIn(listSorted(dir, "*.wav;*.aif;*.aiff;*.flac"), current, delta);
     if (target.existsAsFile())
         processor.loadIr(target);
+}
+
+void Editor::openKnobValueEditor(KnobSlider& slider)
+{
+    const auto centre = getLocalPoint(&slider, slider.getLocalBounds().getCentre());
+    knobValueEditor.setBounds(
+        juce::Rectangle<int>{74, 20}.withCentre(centre));
+    knobValueEditor.setText(slider.getTextFromValue(slider.getValue()));
+    knobValueEditor.onReturnKey = [this, &slider] {
+        slider.setValue(slider.getValueFromText(knobValueEditor.getText()),
+                        juce::sendNotificationSync);
+        knobValueEditor.setVisible(false);
+    };
+    auto dismiss = [this] { knobValueEditor.setVisible(false); };
+    knobValueEditor.onEscapeKey = dismiss;
+    knobValueEditor.onFocusLost = dismiss;
+    knobValueEditor.setVisible(true);
+    knobValueEditor.toFront(true);
+    knobValueEditor.grabKeyboardFocus();
 }
 
 void Editor::rebuildQualityLevels(const std::vector<double>& breakpoints)

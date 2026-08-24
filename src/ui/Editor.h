@@ -150,6 +150,41 @@ private:
         Kind kind;
     };
 
+    // Rotary with click-to-type: a click (not drag) on the in-knob value
+    // opens an inline editor. Dragging and double-click-default unchanged.
+    class KnobSlider final : public juce::Slider
+    {
+    public:
+        std::function<void()> onValueClick;
+
+        void mouseDown(const juce::MouseEvent& e) override
+        {
+            dragged = false;
+            juce::Slider::mouseDown(e);
+        }
+        void mouseDrag(const juce::MouseEvent& e) override
+        {
+            if (e.getDistanceFromDragStart() > 3)
+                dragged = true;
+            juce::Slider::mouseDrag(e);
+        }
+        void mouseUp(const juce::MouseEvent& e) override
+        {
+            juce::Slider::mouseUp(e);
+            if (!dragged && e.getNumberOfClicks() == 1 && onValueClick
+                && valueZone().contains(e.position))
+                onValueClick();
+        }
+
+    private:
+        juce::Rectangle<float> valueZone() const
+        {
+            const auto b = getLocalBounds().toFloat();
+            return juce::Rectangle<float>{b.getWidth() * 0.6f, 20.0f}.withCentre(b.getCentre());
+        }
+        bool dragged = false;
+    };
+
     // Header power switch: classic power glyph, accent when on.
     class PowerButton final : public juce::Button
     {
@@ -207,7 +242,9 @@ private:
     SelectorRow modelRow;
     juce::Label normStatusLabel; // normalization offset / missing-metadata flag
     juce::Label tightCaption, toneCaption, driveCaption;
-    juce::Slider tightSlider, toneSlider, driveSlider;
+    KnobSlider tightSlider, toneSlider, driveSlider;
+    juce::TextEditor knobValueEditor; // shared inline editor for knob values
+    void openKnobValueEditor(KnobSlider&);
     std::unique_ptr<SliderAttachment> tightAttachment, toneAttachment;
     juce::Label qualityCaption;
     juce::ComboBox qualityBox; // discrete levels from the model's breakpoints
