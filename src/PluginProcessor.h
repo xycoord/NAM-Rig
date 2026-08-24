@@ -112,7 +112,6 @@ private:
     std::atomic<float>* driveDb = nullptr;
     std::atomic<float>* trimDb = nullptr;
     std::atomic<float>* slimParam = nullptr;
-    std::atomic<float>* outputModeParam = nullptr;
     std::atomic<float>* irEnabledParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;

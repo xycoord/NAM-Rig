@@ -10,7 +10,9 @@ namespace namrig::state
 // Retired IDs (never reuse): "input_gain", "output_gain" (replaced by the
 // compensated drive/trim pair), "norm_target" (with input staging pinned to
 // the meter's target zone, the bypass-matching offset is a derivable
-// constant, not a user trim — see kNormTargetDb in PluginProcessor.cpp).
+// constant, not a user trim — see kNormTargetDb in PluginProcessor.cpp),
+// "output_mode" (normalization is always on; models without loudness
+// metadata pass through unadjusted, flagged in the UI).
 namespace param_ids
 {
 // Gain into the model, inversely compensated at the output: changes how
@@ -22,8 +24,6 @@ inline const juce::ParameterID trim{"trim", 1};
 // 0..1 ratio fed to nam::SlimmableModel::SetSlimmableSize; 1 = full model.
 // Shown to the user as "Quality".
 inline const juce::ParameterID slim{"slim", 1};
-// 0 = Raw, 1 = Normalized (level-match models via loudness metadata).
-inline const juce::ParameterID outputMode{"output_mode", 1};
 // IR convolution on/off (IR stays loaded while bypassed).
 inline const juce::ParameterID irEnabled{"ir_enabled", 1};
 // 0 = Auto (bus width in a DAW, mono standalone), 1 = Mono, 2 = Stereo.

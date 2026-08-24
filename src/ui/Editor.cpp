@@ -138,6 +138,10 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     modelStatusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(modelStatusLabel);
 
+    normStatusLabel.setJustificationType(juce::Justification::centred);
+    normStatusLabel.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(normStatusLabel);
+
     knob(driveSlider);
     driveSlider.setTooltip("How hard the model is driven. The output is compensated "
                            "by the model's measured response, so loudness stays "
@@ -171,15 +175,6 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     attachCombo(stereoIrBox, state::param_ids::stereoIrMode, stereoIrAttachment);
     stereoIrBox.setTooltip("How a 2-channel IR is used when processing in stereo: "
                            "one channel per side, or collapse to mono and spread.");
-
-    // --- OUTPUT ---
-    attachCombo(outputModeBox, state::param_ids::outputMode, outputModeAttachment);
-    outputModeBox.setTooltip("Normalized level-matches models that carry loudness "
-                             "metadata; Raw leaves levels as captured.");
-
-    normCaption.setJustificationType(juce::Justification::centredLeft);
-    normCaption.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(normCaption);
 
     setResizable(true, true);
     setResizeLimits(640, 320, 0x3fffffff, 0x3fffffff);
@@ -241,31 +236,22 @@ void Editor::timerCallback()
         resized();
     }
 
-    // Normalized-mode status: the applied offset, or missing metadata
-    // (no silent fallback).
-    const bool normalized = outputModeBox.getSelectedItemIndex() == 1;
-    if (normCaption.isVisible() != normalized)
+    // Normalization status: applied offset, or missing metadata (never a
+    // silent fallback).
+    if (!info.loaded)
+        normStatusLabel.setText({}, juce::dontSendNotification);
+    else if (!info.hasLoudness)
     {
-        normCaption.setVisible(normalized);
-        resized();
+        normStatusLabel.setColour(juce::Label::textColourId, kError);
+        normStatusLabel.setText("no loudness data - level unmanaged",
+                                juce::dontSendNotification);
     }
-    if (normalized)
+    else
     {
-        if (info.loaded && !info.hasLoudness)
-        {
-            normCaption.setColour(juce::Label::textColourId, kError);
-            normCaption.setText("Level (model has no loudness data)",
+        normStatusLabel.setColour(juce::Label::textColourId, kDim);
+        normStatusLabel.setText("level " + juce::String(processor.getNormalizationOffsetDb(), 1)
+                                    + " dB",
                                 juce::dontSendNotification);
-        }
-        else
-        {
-            normCaption.setColour(juce::Label::textColourId, kDim);
-            normCaption.setText(info.loaded
-                                    ? juce::String(processor.getNormalizationOffsetDb(), 1)
-                                          + " dB applied"
-                                    : juce::String{},
-                                juce::dontSendNotification);
-        }
     }
 
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
@@ -335,8 +321,6 @@ void Editor::resized()
     const int sideWidth = juce::jmax(160, area.getWidth() / 5);
     auto inputArea = area.removeFromLeft(sideWidth);
     area.removeFromLeft(gap);
-    auto outputArea = area.removeFromRight(sideWidth);
-    area.removeFromRight(gap);
     const int half = (area.getWidth() - gap) / 2;
     auto ampArea = area.removeFromLeft(half);
     area.removeFromLeft(gap);
@@ -345,7 +329,6 @@ void Editor::resized()
     sections[0] = {inputArea, "INPUT"};
     sections[1] = {ampArea, "AMP"};
     sections[2] = {irArea, "CAB / IR"};
-    sections[3] = {outputArea, "OUTPUT"};
 
     const int header = 24;
 
@@ -370,6 +353,7 @@ void Editor::resized()
         clearModelButton.setBounds(buttons.removeFromLeft(64));
         r.removeFromTop(4);
         modelStatusLabel.setBounds(r.removeFromTop(22));
+        normStatusLabel.setBounds(r.removeFromTop(16));
         auto quality = r.removeFromBottom(22);
         qualityCaption.setBounds(quality.removeFromLeft(juce::jmin(170, quality.getWidth() / 2)));
         qualitySlider.setBounds(quality);
@@ -393,14 +377,6 @@ void Editor::resized()
             stereoIrBox.setBounds(r.removeFromBottom(24).removeFromLeft(150));
     }
 
-    // OUTPUT: mode at top; Normalized level below it.
-    {
-        auto r = outputArea.withTrimmedTop(header).reduced(8);
-        outputModeBox.setBounds(r.removeFromTop(24));
-        r.removeFromTop(6);
-        if (normCaption.isVisible())
-            normCaption.setBounds(r.removeFromTop(16));
-    }
 }
 
 } // namespace namrig

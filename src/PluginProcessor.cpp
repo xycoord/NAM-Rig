@@ -43,7 +43,6 @@ Processor::Processor()
     driveDb = state.getRawParameterValue(state::param_ids::drive.getParamID());
     trimDb = state.getRawParameterValue(state::param_ids::trim.getParamID());
     slimParam = state.getRawParameterValue(state::param_ids::slim.getParamID());
-    outputModeParam = state.getRawParameterValue(state::param_ids::outputMode.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
@@ -366,11 +365,11 @@ void Processor::timerCallback()
     if (latency != getLatencySamples())
         setLatencySamples(latency);
 
+    // Normalization is always on: well-tagged models land at the staged
+    // bypass level; untagged ones pass through unadjusted (flagged in UI).
     const auto info = engine.models().info();
-    const bool normalized = outputModeParam->load() >= 0.5f;
-    const float offset = (normalized && info.hasLoudness)
-                             ? kNormTargetDb - static_cast<float>(info.loudness)
-                             : 0.0f;
+    const float offset =
+        info.hasLoudness ? kNormTargetDb - static_cast<float>(info.loudness) : 0.0f;
     normalizationOffsetDb.store(offset, std::memory_order_relaxed);
 
     const float slim = slimParam->load();

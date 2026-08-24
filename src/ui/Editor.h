@@ -51,7 +51,7 @@ private:
         juce::Rectangle<int> frame;
         const char* title = "";
     };
-    std::array<Section, 4> sections;
+    std::array<Section, 3> sections;
 
     // Utility bar.
     juce::Label topologyLabel;
@@ -70,6 +70,7 @@ private:
     juce::TextButton loadModelButton{"Load..."};
     juce::TextButton clearModelButton{"Clear"};
     juce::Label modelStatusLabel;
+    juce::Label normStatusLabel; // normalization offset / missing-metadata flag
     juce::Label driveCaption;
     juce::Slider driveSlider;
     juce::Label qualityCaption;
@@ -84,12 +85,6 @@ private:
     juce::ComboBox stereoIrBox; // visible only when it means something
     std::unique_ptr<ButtonAttachment> irToggleAttachment;
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
-
-    // OUTPUT: mode + status (the bypass-matching offset is derived, not
-    // user-trimmed — staging pins the input, so the target is a constant).
-    juce::ComboBox outputModeBox;
-    juce::Label normCaption;
-    std::unique_ptr<ComboAttachment> outputModeAttachment;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
