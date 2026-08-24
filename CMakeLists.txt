@@ -6,8 +6,9 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-# Milestone 1: standalone only. CLAP + VST3 targets arrive in milestone 5.
 add_subdirectory(libs/JUCE)
+# CLAP support (formats beyond Standalone; VST3 deferred — CLAP covers Reaper).
+add_subdirectory(libs/clap-juce-extensions EXCLUDE_FROM_ALL)
 
 # ---- Vendored DSP (framework-free) -----------------------------------------
 # The NAM core has no embeddable CMake target of its own; we compile its
@@ -49,6 +50,11 @@ add_library(namrig_engine STATIC
     src/engine/Engine.cpp)
 target_include_directories(namrig_engine PUBLIC src)
 target_link_libraries(namrig_engine PUBLIC nam_core adt)
+
+# Plugin formats are shared modules; everything they swallow must be PIC
+# (the standalone doesn't care, the .clap link fails without it).
+set_target_properties(nam_core adt namrig_engine
+    PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 juce_add_plugin(NamRig
     COMPANY_NAME "xycoord"
@@ -102,6 +108,11 @@ target_link_libraries(NamRig
         juce::juce_recommended_config_flags
         juce::juce_recommended_lto_flags
         juce::juce_recommended_warning_flags)
+
+# ---- CLAP ------------------------------------------------------------------
+clap_juce_extensions_plugin(TARGET NamRig
+    CLAP_ID "com.xycoord.namrig"
+    CLAP_FEATURES audio-effect distortion "guitar amp")
 
 # ---- Tests -----------------------------------------------------------------
 option(NAMRIG_BUILD_TESTS "Build unit tests" ON)
