@@ -46,6 +46,8 @@ Processor::Processor()
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
+    tightParam = state.getRawParameterValue(state::param_ids::tight.getParamID());
+    toneParam = state.getRawParameterValue(state::param_ids::tone.getParamID());
 
     irFormats.registerBasicFormats();
 
@@ -79,6 +81,18 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     const juce::dsp::ProcessSpec spec{sampleRate, static_cast<juce::uint32>(preparedBlockSize), 2};
     convPrimary.prepare(spec);
     convQuadB.prepare(spec);
+
+    tightFilter.prepare(spec);
+    tightFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
+    tightFilter.setResonance(0.7071f); // Butterworth
+    toneFilter.prepare(spec);
+    toneFilter.setType(juce::dsp::FirstOrderTPTFilterType::lowpass);
+    for (auto* sm : {&tightHz, &toneHz})
+        sm->reset(sampleRate / preparedBlockSize, 0.05); // per-chunk update rate
+    tightHz.setCurrentAndTargetValue(tightParam->load());
+    toneHz.setCurrentAndTargetValue(toneParam->load());
+    tightFilter.setCutoffFrequency(tightParam->load());
+    toneFilter.setCutoffFrequency(toneParam->load());
 
     const double rampSeconds = 0.02;
     for (auto* s : {&trimGain, &driveGain, &outputGain, &irMix})
@@ -135,6 +149,8 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         -engine.models().measuredRiseDb(drive)
         + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
+    tightHz.setTargetValue(tightParam->load());
+    toneHz.setTargetValue(toneParam->load());
 
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)
     {
@@ -177,6 +193,25 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         // Single audio-thread writer: load/max/store is race-free.
         inputPeak.store(juce::jmax(inputPeak.load(std::memory_order_relaxed), chunkPeak),
                         std::memory_order_relaxed);
+
+        // ---- pre-amp filters: tight (HP) then tone (LP) --------------------
+        {
+            if (lanes == 1)
+                std::memset(lane1.data(), 0, bytes); // constant 2ch shape
+            float* ch[2] = {lane0.data(), lane1.data()};
+            juce::dsp::AudioBlock<float> block{ch, 2, static_cast<size_t>(n)};
+            juce::dsp::ProcessContextReplacing<float> ctx{block};
+
+            tightFilter.setCutoffFrequency(tightHz.getNextValue());
+            tightFilter.process(ctx);
+
+            // Tone fully open means fully out of the path (even a 20 kHz
+            // one-pole shades the top octave slightly).
+            const float toneCut = toneHz.getNextValue();
+            toneFilter.setCutoffFrequency(juce::jmin(toneCut, 19000.0f));
+            if (toneCut < 19000.0f)
+                toneFilter.process(ctx);
+        }
 
         // ---- drive into the model ------------------------------------------
         applyGainRamp(driveGain, n);
@@ -465,6 +500,8 @@ void Processor::capturePresetSnapshot(const juce::String& pendingModelPath)
     presetSnapshot.quality = slimParam->load();
     presetSnapshot.irEnabled = irEnabledParam->load() >= 0.5f;
     presetSnapshot.stereoMode = static_cast<int>(stereoIrModeParam->load());
+    presetSnapshot.tight = tightParam->load();
+    presetSnapshot.tone = toneParam->load();
 }
 
 bool Processor::isPresetDirty() const
@@ -483,6 +520,10 @@ bool Processor::isPresetDirty() const
     if ((irEnabledParam->load() >= 0.5f) != presetSnapshot.irEnabled)
         return true;
     if (static_cast<int>(stereoIrModeParam->load()) != presetSnapshot.stereoMode)
+        return true;
+    if (std::abs(tightParam->load() - presetSnapshot.tight) > 0.5f)
+        return true;
+    if (std::abs(toneParam->load() - presetSnapshot.tone) > 10.0f)
         return true;
     return false;
 }
@@ -513,6 +554,8 @@ bool Processor::savePreset(const juce::String& name)
     params->setProperty("quality", slimParam->load());
     params->setProperty("ir_enabled", irEnabledParam->load() >= 0.5f);
     params->setProperty("stereo_ir_mode", static_cast<int>(stereoIrModeParam->load()));
+    params->setProperty("tight", tightParam->load());
+    params->setProperty("tone", toneParam->load());
     // Reserved: per-model output trim for wrong-metadata models. No UI yet.
     params->setProperty("model_trim", 0.0);
     obj->setProperty("params", juce::var{params});
@@ -568,6 +611,10 @@ bool Processor::loadPreset(const juce::String& name)
                            static_cast<bool>(params->getProperty("ir_enabled")) ? 1.0f : 0.0f);
         setParamFromPreset(state::param_ids::stereoIrMode,
                            static_cast<int>(params->getProperty("stereo_ir_mode")));
+        if (params->hasProperty("tight"))
+            setParamFromPreset(state::param_ids::tight, params->getProperty("tight"));
+        if (params->hasProperty("tone"))
+            setParamFromPreset(state::param_ids::tone, params->getProperty("tone"));
     }
 
     currentPresetName = name;

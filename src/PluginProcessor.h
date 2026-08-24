@@ -129,7 +129,7 @@ private:
     {
         bool valid = false;
         juce::String modelPath, irPath;
-        float drive = 0, quality = 0;
+        float drive = 0, quality = 0, tight = 20, tone = 20000;
         bool irEnabled = true;
         int stereoMode = 0;
     } presetSnapshot;
@@ -144,6 +144,8 @@ private:
     std::atomic<float>* irEnabledParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
+    std::atomic<float>* tightParam = nullptr;
+    std::atomic<float>* toneParam = nullptr;
 
     std::atomic<float> normalizationOffsetDb{0.0f};
 
@@ -163,6 +165,13 @@ private:
     std::atomic<float> inputPeak{0.0f};
     // Post-everything output peak (what leaves the plugin).
     std::atomic<float> outputPeak{0.0f};
+
+    // Pre-amp filters (trim -> tight -> tone -> drive -> model). TPT
+    // structures: correct near-Nyquist response, click-free cutoff sweeps.
+    // Always processed 2-channel (constant shape); per-lane state.
+    juce::dsp::StateVariableTPTFilter<float> tightFilter; // 12 dB/oct HP
+    juce::dsp::FirstOrderTPTFilter<float> toneFilter;     // 6 dB/oct LP
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> tightHz, toneHz;
 
     // IR stage. convPrimary serves 1ch and 2ch IRs (and the LL/LR half of a
     // quad); convQuadB is the RL/RR half, processed only in quad topology.

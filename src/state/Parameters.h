@@ -28,6 +28,11 @@ inline const juce::ParameterID slim{"slim", 1};
 inline const juce::ParameterID irEnabled{"ir_enabled", 1};
 // 0 = Auto (bus width in a DAW, mono standalone), 1 = Mono, 2 = Stereo.
 inline const juce::ParameterID channels{"channels", 1};
+// Pre-amp filters (part of the sound; in presets).
+// Tight: 12 dB/oct high-pass, 20 Hz (~off) .. 120 Hz — pre-gain low-end control.
+inline const juce::ParameterID tight{"tight", 1};
+// Tone: 6 dB/oct low-pass like a guitar tone pot, 500 Hz .. 20 kHz (open = bypass).
+inline const juce::ParameterID tone{"tone", 1};
 // Policy for a 2ch IR under stereo processing: 0 = Dual mono (L*ch1, R*ch2),
 // 1 = Mono -> stereo (collapse, then spread through the IR pair).
 inline const juce::ParameterID stereoIrMode{"stereo_ir_mode", 1};

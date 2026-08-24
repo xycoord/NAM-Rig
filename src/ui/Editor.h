@@ -180,8 +180,9 @@ private:
     // AMP: model + drive + quality.
     SelectorRow modelRow;
     juce::Label normStatusLabel; // normalization offset / missing-metadata flag
-    juce::Label driveCaption;
-    juce::Slider driveSlider;
+    juce::Label tightCaption, toneCaption, driveCaption;
+    juce::Slider tightSlider, toneSlider, driveSlider;
+    std::unique_ptr<SliderAttachment> tightAttachment, toneAttachment;
     juce::Label qualityCaption;
     juce::ComboBox qualityBox; // discrete levels from the model's breakpoints
     std::vector<double> qualityLevelValues; // slim ratio per dropdown item

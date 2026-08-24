@@ -319,6 +319,22 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     normStatusLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(normStatusLabel);
 
+    knob(tightSlider);
+    tightSlider.setTextValueSuffix(" Hz");
+    tightSlider.setTooltip("Pre-gain high-pass (12 dB/oct). Tightens the low end "
+                           "before distortion; at 20 Hz it's effectively off.");
+    tightAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::tight.getParamID(), tightSlider);
+    caption(tightCaption, "Tight");
+
+    knob(toneSlider);
+    toneSlider.setTextValueSuffix(" Hz");
+    toneSlider.setTooltip("Pre-gain low-pass, 6 dB/oct — like rolling off the "
+                          "guitar's tone pot. Fully open = out of the path.");
+    toneAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::tone.getParamID(), toneSlider);
+    caption(toneCaption, "Tone");
+
     knob(driveSlider);
     driveSlider.setTooltip("How hard the model is driven. The output is compensated "
                            "by the model's measured response, so loudness stays "
@@ -669,8 +685,20 @@ void Editor::resized()
             channelsBox.setBounds(bottomRow.removeFromLeft(118));
         }
         r.removeFromBottom(4);
-        driveCaption.setBounds(r.removeFromTop(16));
-        driveSlider.setBounds(r);
+        // Knob row in signal order: Tight, Tone, then Drive as the hero.
+        const int smallW = juce::jmin(r.getWidth() / 4, 92);
+        auto tightCol = r.removeFromLeft(smallW);
+        auto toneCol = r.removeFromLeft(smallW);
+        auto layoutKnob = [](juce::Rectangle<int> col, juce::Label& cap, juce::Slider& sl,
+                             int knobMax) {
+            cap.setBounds(col.removeFromTop(16));
+            sl.setBounds(col.getWidth() > knobMax
+                             ? col.withSizeKeepingCentre(knobMax, col.getHeight())
+                             : col);
+        };
+        layoutKnob(tightCol.withTrimmedTop(14), tightCaption, tightSlider, 96);
+        layoutKnob(toneCol.withTrimmedTop(14), toneCaption, toneSlider, 96);
+        layoutKnob(r, driveCaption, driveSlider, 200);
     }
 
     // CAB / IR: selector row, then toggles.
