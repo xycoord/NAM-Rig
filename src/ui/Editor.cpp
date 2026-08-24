@@ -21,10 +21,14 @@ const juce::Colour kDim{0xff85818f};
 const juce::Colour kAccent{0xff7fa8f2};
 const juce::Colour kOk{0xff77c79b};
 
-// Staging meter scale and target zone (peak dBFS, post-trim).
+// Staging meter scale and target zone (peak dBFS, post-trim). The zone is
+// where the HARDEST playing should peak, anchored to upstream's reference
+// DI (Guitar DI.wav: max peak -8.6 dBFS, typical playing peaks -16..-28).
+// +/-5 dB is fine — Drive absorbs capture-level variance; the zone catches
+// staging errors, not decibels.
 constexpr float kMeterFloorDb = -48.0f;
-constexpr float kTargetLowDb = -12.0f;
-constexpr float kTargetHighDb = -3.0f;
+constexpr float kTargetLowDb = -15.0f;
+constexpr float kTargetHighDb = -6.0f;
 } // namespace
 
 // ---- StagingMeter -----------------------------------------------------------
