@@ -67,12 +67,9 @@ void Editor::TunerStrip::setReading(const float freqHz, const float clarity)
 
 void Editor::TunerStrip::paint(juce::Graphics& g)
 {
+    // Frameless: the tuner is a readout, not a control group — it floats
+    // on the window ground.
     auto r = getLocalBounds().toFloat();
-    g.setColour(kPanel);
-    g.fillRoundedRectangle(r, 6.0f);
-    g.setColour(kFrame);
-    g.drawRoundedRectangle(r, 6.0f, 1.0f);
-
     const auto centreX = r.getCentreX();
 
     if (noteIndex < 0)
@@ -114,7 +111,7 @@ void Editor::TunerStrip::paint(juce::Graphics& g)
                juce::Justification::centredLeft);
 
     // Deviation scale: +/-50 cents, ticks at 0 / 25 / 50.
-    const float scaleW = r.getWidth() * 0.72f;
+    const float scaleW = r.getWidth() - 16.0f; // full width, small inset
     const float scaleY = r.getBottom() - 14.0f;
     const float left = centreX - scaleW / 2.0f;
     g.setColour(kFrame);
