@@ -33,8 +33,8 @@ Processor::Processor()
                          .withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       state(*this, nullptr, "state", state::createParameterLayout())
 {
-    inputGainDb = state.getRawParameterValue(state::param_ids::inputGain.getParamID());
-    outputGainDb = state.getRawParameterValue(state::param_ids::outputGain.getParamID());
+    driveDb = state.getRawParameterValue(state::param_ids::drive.getParamID());
+    trimDb = state.getRawParameterValue(state::param_ids::trim.getParamID());
     slimParam = state.getRawParameterValue(state::param_ids::slim.getParamID());
     outputModeParam = state.getRawParameterValue(state::param_ids::outputMode.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
@@ -78,9 +78,10 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     const double rampSeconds = 0.02;
     for (auto* s : {&inputGain, &outputGain, &irMix})
         s->reset(sampleRate, rampSeconds);
-    inputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(inputGainDb->load()));
+    const float drive0 = driveDb->load();
+    inputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(drive0));
     outputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
-        outputGainDb->load() + normalizationOffsetDb.load(std::memory_order_relaxed)));
+        trimDb->load() - drive0 + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
 }
 
@@ -117,9 +118,12 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     const auto topo = static_cast<IrTopology>(irTopology.load(std::memory_order_relaxed));
     const bool haveIr = irLoaded.load(std::memory_order_relaxed);
 
-    inputGain.setTargetValue(juce::Decibels::decibelsToGain(inputGainDb->load()));
+    // Compensated drive: what goes up before the model comes back down
+    // after it, so Drive changes character at (near) constant loudness.
+    const float drive = driveDb->load();
+    inputGain.setTargetValue(juce::Decibels::decibelsToGain(drive));
     outputGain.setTargetValue(juce::Decibels::decibelsToGain(
-        outputGainDb->load() + normalizationOffsetDb.load(std::memory_order_relaxed)));
+        trimDb->load() - drive + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
 
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)

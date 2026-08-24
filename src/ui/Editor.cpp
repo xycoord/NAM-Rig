@@ -63,8 +63,14 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         addAndMakeVisible(slider);
     };
     setUpKnob(inputSlider);
+    inputSlider.setTooltip("How hard the model is driven; the output is "
+                           "compensated so loudness stays (near) constant.");
     inputAttachment = std::make_unique<SliderAttachment>(
-        state, state::param_ids::inputGain.getParamID(), inputSlider);
+        state, state::param_ids::drive.getParamID(), inputSlider);
+    driveCaption.setText("Drive", juce::dontSendNotification);
+    driveCaption.setJustificationType(juce::Justification::centred);
+    driveCaption.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(driveCaption);
 
     // --- AMP ---
     loadModelButton.onClick = [this] { chooseModel(); };
@@ -108,7 +114,11 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     // --- OUTPUT ---
     setUpKnob(outputSlider);
     outputAttachment = std::make_unique<SliderAttachment>(
-        state, state::param_ids::outputGain.getParamID(), outputSlider);
+        state, state::param_ids::trim.getParamID(), outputSlider);
+    trimCaption.setText("Trim", juce::dontSendNotification);
+    trimCaption.setJustificationType(juce::Justification::centred);
+    trimCaption.setColour(juce::Label::textColourId, kDim);
+    addAndMakeVisible(trimCaption);
     attachCombo(outputModeBox, state::param_ids::outputMode, outputModeAttachment);
     outputModeBox.setTooltip("Normalized level-matches models that carry loudness "
                              "metadata; Raw leaves levels as captured.");
@@ -308,6 +318,7 @@ void Editor::resized()
         channelsBox.setBounds(r.removeFromBottom(22));
         channelsCaption.setBounds(r.removeFromBottom(16));
         r.removeFromBottom(4);
+        driveCaption.setBounds(r.removeFromTop(16));
         inputSlider.setBounds(r);
     }
 
@@ -351,6 +362,7 @@ void Editor::resized()
         }
         outputModeBox.setBounds(r.removeFromBottom(24));
         r.removeFromBottom(6);
+        trimCaption.setBounds(r.removeFromTop(16));
         outputSlider.setBounds(r);
     }
 }

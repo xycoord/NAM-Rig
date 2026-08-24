@@ -106,8 +106,8 @@ private:
     engine::Engine engine;
 
     // Raw parameter pointers (atomic reads on the audio thread).
-    std::atomic<float>* inputGainDb = nullptr;
-    std::atomic<float>* outputGainDb = nullptr;
+    std::atomic<float>* driveDb = nullptr;
+    std::atomic<float>* trimDb = nullptr;
     std::atomic<float>* slimParam = nullptr;
     std::atomic<float>* outputModeParam = nullptr;
     std::atomic<float>* irEnabledParam = nullptr;

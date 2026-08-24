@@ -49,7 +49,8 @@ private:
     std::unique_ptr<ComboAttachment> channelsAttachment;
 
     // INPUT.
-    juce::Slider inputSlider;
+    juce::Label driveCaption;
+    juce::Slider inputSlider; // Drive
     std::unique_ptr<SliderAttachment> inputAttachment;
 
     // AMP.
@@ -70,7 +71,8 @@ private:
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
 
     // OUTPUT.
-    juce::Slider outputSlider;
+    juce::Label trimCaption;
+    juce::Slider outputSlider; // Trim
     juce::ComboBox outputModeBox;
     juce::Label normCaption;
     juce::Slider normTargetSlider; // Normalized mode only

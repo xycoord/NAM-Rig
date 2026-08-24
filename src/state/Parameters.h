@@ -7,10 +7,15 @@ namespace namrig::state
 
 // Stable string IDs. These are the contract with saved state — never reuse
 // or repurpose one. New parameters get new IDs; removed ones are retired.
+// Retired IDs (never reuse): "input_gain", "output_gain" — replaced by the
+// compensated drive/trim pair below.
 namespace param_ids
 {
-inline const juce::ParameterID inputGain{"input_gain", 1};
-inline const juce::ParameterID outputGain{"output_gain", 1};
+// Gain into the model, inversely compensated at the output: changes how
+// hard the model is driven at (near-enough) constant loudness.
+inline const juce::ParameterID drive{"drive", 1};
+// Output volume.
+inline const juce::ParameterID trim{"trim", 1};
 // 0..1 ratio fed to nam::SlimmableModel::SetSlimmableSize; 1 = full model.
 // Shown to the user as "Quality".
 inline const juce::ParameterID slim{"slim", 1};
