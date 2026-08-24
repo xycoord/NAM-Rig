@@ -152,6 +152,24 @@ public:
         g.fillEllipse(juce::Rectangle<float>{lineW * 1.8f, lineW * 1.8f}.withCentre(thumb));
     }
 
+    // Labels (including slider value boxes) never get outlines — the
+    // stock path copies an outline colour at construction, before this
+    // LookAndFeel attaches, so we neutralize it at draw time instead.
+    void drawLabel(juce::Graphics& g, juce::Label& label) override
+    {
+        g.fillAll(label.findColour(juce::Label::backgroundColourId));
+        if (!label.isBeingEdited())
+        {
+            const float alpha = label.isEnabled() ? 1.0f : 0.5f;
+            g.setColour(label.findColour(juce::Label::textColourId).withMultipliedAlpha(alpha));
+            g.setFont(getLabelFont(label));
+            const auto area = getLabelBorderSize(label).subtractedFrom(label.getLocalBounds());
+            g.drawFittedText(label.getText(), area, label.getJustificationType(),
+                             juce::jmax(1, area.getHeight() / 16),
+                             label.getMinimumHorizontalScale());
+        }
+    }
+
     void drawButtonBackground(juce::Graphics& g, juce::Button& button,
                               const juce::Colour& backgroundColour,
                               bool isHighlighted, bool isDown) override
