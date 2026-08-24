@@ -694,10 +694,13 @@ void Editor::resized()
             sl.setBounds(col.withSizeKeepingCentre(juce::jmin(width, col.getWidth()),
                                                    col.getHeight()));
         };
-        const int smallW = juce::jmin(r.getWidth() / 4, 100);
-        place(r.removeFromLeft(smallW), tightCaption, tightSlider, 86);
-        place(r.removeFromLeft(smallW), toneCaption, toneSlider, 86);
-        place(r, driveCaption, driveSlider, 150);
+        // Filters stacked in one column left of Drive: pre-gain shaping as
+        // a unit, the hero knob beside it.
+        auto filterCol = r.removeFromLeft(juce::jmin(r.getWidth() / 3, 116));
+        auto tightArea = filterCol.removeFromTop(filterCol.getHeight() / 2);
+        place(tightArea, tightCaption, tightSlider, 78);
+        place(filterCol, toneCaption, toneSlider, 78);
+        place(r, driveCaption, driveSlider, 160);
     }
 
     // CAB / IR: selector row, then toggles.
