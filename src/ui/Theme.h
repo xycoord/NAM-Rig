@@ -126,7 +126,7 @@ public:
         const auto centre = bounds.getCentre();
         const float angle =
             rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
-        const float lineW = juce::jmax(2.5f, radius * 0.08f);
+        const float lineW = 3.0f; // constant weight: same pen on every knob
         const float arcRadius = radius - lineW / 2.0f;
         const bool enabled = slider.isEnabled();
 
@@ -150,6 +150,14 @@ public:
         const auto thumb = centre.getPointOnCircumference(arcRadius, angle);
         g.setColour(enabled ? accent : textSecondary);
         g.fillEllipse(juce::Rectangle<float>{lineW * 1.8f, lineW * 1.8f}.withCentre(thumb));
+
+        // Value in the knob's centre: number and control are one object.
+        g.setColour(enabled ? textPrimary : textSecondary);
+        const float textSize = juce::jlimit(11.0f, 15.0f, radius * 0.42f);
+        g.setFont(juce::FontOptions{textSize});
+        g.drawText(slider.getTextFromValue(slider.getValue()),
+                   juce::Rectangle<float>{arcRadius * 1.7f, textSize + 2.0f}.withCentre(centre),
+                   juce::Justification::centred);
     }
 
     // Labels (including slider value boxes) never get outlines — the

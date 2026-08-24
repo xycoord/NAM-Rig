@@ -198,10 +198,13 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         label.setColour(juce::Label::textColourId, kDim);
         addAndMakeVisible(label);
     };
-    auto knob = [this](juce::Slider& slider) {
+    auto knob = [this](juce::Slider& slider, double defaultValue) {
         slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 20);
+        slider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0); // value drawn in-knob
         slider.setTextValueSuffix(" dB");
+        slider.setDoubleClickReturnValue(true, defaultValue);
+        slider.setVelocityModeParameters(1.0, 1, 0.0, true,
+                                         juce::ModifierKeys::shiftModifier); // shift = fine
         addAndMakeVisible(slider);
     };
 
@@ -319,7 +322,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     normStatusLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(normStatusLabel);
 
-    knob(tightSlider);
+    knob(tightSlider, 20.0);
     tightSlider.setTextValueSuffix({});
     tightSlider.setTooltip("Pre-gain high-pass (12 dB/oct). Tightens the low end "
                            "before distortion; at 20 Hz it's effectively off.");
@@ -327,7 +330,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         state, state::param_ids::tight.getParamID(), tightSlider);
     caption(tightCaption, "HPF");
 
-    knob(toneSlider);
+    knob(toneSlider, 20000.0);
     toneSlider.setTextValueSuffix({});
     toneSlider.setTooltip("Pre-gain low-pass, 6 dB/oct — like rolling off the "
                           "guitar's tone pot. Fully open = out of the path.");
@@ -335,7 +338,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         state, state::param_ids::tone.getParamID(), toneSlider);
     caption(toneCaption, "LPF");
 
-    knob(driveSlider);
+    knob(driveSlider, 0.0);
     driveSlider.setTooltip("How hard the model is driven. The output is compensated "
                            "by the model's measured response, so loudness stays "
                            "close to constant.");
@@ -716,7 +719,7 @@ void Editor::resized()
         // the knob diameters differ.
         auto place = [](juce::Rectangle<int> col, juce::Label& cap, juce::Slider& sl,
                         int width) {
-            cap.setBounds(col.removeFromTop(16));
+            cap.setBounds(col.removeFromBottom(15)); // label sits under its knob
             sl.setBounds(col.withSizeKeepingCentre(juce::jmin(width, col.getWidth()),
                                                    col.getHeight()));
         };
