@@ -26,6 +26,8 @@ inline const juce::ParameterID trim{"trim", 1};
 inline const juce::ParameterID slim{"slim", 1};
 // IR convolution on/off (IR stays loaded while bypassed).
 inline const juce::ParameterID irEnabled{"ir_enabled", 1};
+// Amp section on/off (filters + drive + model; trim and IR unaffected).
+inline const juce::ParameterID ampEnabled{"amp_enabled", 1};
 // 0 = Auto (bus width in a DAW, mono standalone), 1 = Mono, 2 = Stereo.
 inline const juce::ParameterID channels{"channels", 1};
 // Pre-amp filters (part of the sound; in presets).

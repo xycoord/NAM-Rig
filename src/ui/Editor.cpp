@@ -359,16 +359,24 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     qualityBox.setVisible(false);
 
     // --- CAB / IR ---
+    addAndMakeVisible(ampPower);
+    ampPower.setTooltip("Amp section on/off (filters, drive, model)");
+    ampPowerAttachment = std::make_unique<ButtonAttachment>(
+        state, state::param_ids::ampEnabled.getParamID(), ampPower);
+    ampPower.onStateChange = [this] { repaint(); };
+
+    addAndMakeVisible(irPower);
+    irPower.setTooltip("IR on/off (stays loaded while bypassed)");
+    irPowerAttachment = std::make_unique<ButtonAttachment>(
+        state, state::param_ids::irEnabled.getParamID(), irPower);
+    irPower.onStateChange = [this] { repaint(); };
+
     irRow.addTo(*this);
     irRow.name.onClick = [this] { chooseIr(); };
     irRow.prev.onClick = [this] { stepIr(-1); };
     irRow.next.onClick = [this] { stepIr(1); };
     irRow.clear.onClick = [this] { processor.clearIr(); };
     irRow.name.setTooltip("Click to pick an IR; arrows step through its folder.");
-
-    irToggleAttachment = std::make_unique<ButtonAttachment>(
-        state, state::param_ids::irEnabled.getParamID(), irToggle);
-    addAndMakeVisible(irToggle);
 
     attachCombo(stereoIrBox, state::param_ids::stereoIrMode, stereoIrAttachment);
     stereoIrBox.setTooltip("How a 2-channel IR is used when processing in stereo: "
@@ -614,6 +622,21 @@ void Editor::paint(juce::Graphics& g)
     }
 }
 
+void Editor::paintOverChildren(juce::Graphics& g)
+{
+    // Bypassed sections dim below their header band (the power switch and
+    // title stay bright and reachable).
+    auto dimIf = [&](bool bypassed, const juce::Rectangle<int>& frame) {
+        if (bypassed && !frame.isEmpty())
+        {
+            g.setColour(kBackground.withAlpha(0.55f));
+            g.fillRoundedRectangle(frame.withTrimmedTop(22).toFloat(), 6.0f);
+        }
+    };
+    dimIf(!ampPower.getToggleState(), sections[1].frame);
+    dimIf(!irPower.getToggleState(), sections[2].frame);
+}
+
 void Editor::resized()
 {
     auto area = getLocalBounds().reduced(14);
@@ -650,6 +673,9 @@ void Editor::resized()
     sections[1] = {ampArea, "AMP"};
     sections[2] = {irArea, "CAB / IR"};
     sections[3] = {outArea, "OUT"};
+
+    ampPower.setBounds(ampArea.getX() + ampArea.getWidth() - 26, ampArea.getY() + 3, 18, 18);
+    irPower.setBounds(irArea.getX() + irArea.getWidth() - 26, irArea.getY() + 3, 18, 18);
 
     const int header = 20;
 
@@ -708,13 +734,8 @@ void Editor::resized()
         auto r = irArea.withTrimmedTop(header).reduced(10, 6);
         irRow.layout(r.removeFromTop(26));
         r.removeFromTop(8);
-        auto toggles = r.removeFromTop(24);
-        irToggle.setBounds(toggles.removeFromLeft(90));
         if (stereoIrBox.isVisible())
-        {
-            toggles.removeFromLeft(10);
-            stereoIrBox.setBounds(toggles.removeFromLeft(140));
-        }
+            stereoIrBox.setBounds(r.removeFromTop(24).removeFromLeft(140));
     }
 
 }

@@ -44,6 +44,7 @@ Processor::Processor()
     trimDb = state.getRawParameterValue(state::param_ids::trim.getParamID());
     slimParam = state.getRawParameterValue(state::param_ids::slim.getParamID());
     irEnabledParam = state.getRawParameterValue(state::param_ids::irEnabled.getParamID());
+    ampEnabledParam = state.getRawParameterValue(state::param_ids::ampEnabled.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
     tightParam = state.getRawParameterValue(state::param_ids::tight.getParamID());
@@ -67,7 +68,8 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
 {
     preparedBlockSize = maximumExpectedSamplesPerBlock;
     const auto sz = static_cast<size_t>(preparedBlockSize);
-    for (auto* v : {&lane0, &lane1, &dry0, &dry1, &quadB0, &quadB1, &gainRamp})
+    for (auto* v : {&lane0, &lane1, &dry0, &dry1, &ampDry0, &ampDry1, &quadB0, &quadB1,
+                    &gainRamp})
         v->assign(sz, 0.0f);
 
     busInputChannels = getTotalNumInputChannels();
@@ -95,14 +97,17 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     toneFilter.setCutoffFrequency(toneParam->load());
 
     const double rampSeconds = 0.02;
-    for (auto* s : {&trimGain, &driveGain, &outputGain, &irMix})
+    for (auto* s : {&trimGain, &driveGain, &outputGain, &irMix, &ampMix})
         s->reset(sampleRate, rampSeconds);
+    ampMix.setCurrentAndTargetValue(ampEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
     const float drive0 = driveDb->load();
     trimGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(trimDb->load()));
     driveGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(drive0));
     outputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
-        -engine.models().measuredRiseDb(drive0)
-        + normalizationOffsetDb.load(std::memory_order_relaxed)));
+        ampEnabledParam->load() >= 0.5f
+            ? -engine.models().measuredRiseDb(drive0)
+                  + normalizationOffsetDb.load(std::memory_order_relaxed)
+            : 0.0f));
     irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
 }
 
@@ -143,11 +148,15 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     // target zone); Drive pushes the model with the MEASURED output rise
     // subtracted after it; Normalized adds its offset at the output.
     const float drive = driveDb->load();
+    const bool ampOn = ampEnabledParam->load() >= 0.5f;
     trimGain.setTargetValue(juce::Decibels::decibelsToGain(trimDb->load()));
     driveGain.setTargetValue(juce::Decibels::decibelsToGain(drive));
+    ampMix.setTargetValue(ampOn ? 1.0f : 0.0f);
+    // Amp off = dry: the measured-rise/normalization gains disengage too.
     outputGain.setTargetValue(juce::Decibels::decibelsToGain(
-        -engine.models().measuredRiseDb(drive)
-        + normalizationOffsetDb.load(std::memory_order_relaxed)));
+        ampOn ? -engine.models().measuredRiseDb(drive)
+                    + normalizationOffsetDb.load(std::memory_order_relaxed)
+              : 0.0f));
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
     tightHz.setTargetValue(tightParam->load());
     toneHz.setTargetValue(toneParam->load());
@@ -194,6 +203,21 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         inputPeak.store(juce::jmax(inputPeak.load(std::memory_order_relaxed), chunkPeak),
                         std::memory_order_relaxed);
 
+        // ---- amp section (filters + drive + model), bypassable -------------
+        const bool ampFullyOff =
+            ampMix.getCurrentValue() <= 0.0f && ampMix.getTargetValue() <= 0.0f;
+        if (ampFullyOff)
+        {
+            ampMix.skip(n);
+            driveGain.skip(n);
+        }
+        else
+        {
+        // Dry snapshot for the bypass crossfade.
+        std::memcpy(ampDry0.data(), lane0.data(), bytes);
+        if (lanes == 2)
+            std::memcpy(ampDry1.data(), lane1.data(), bytes);
+
         // ---- pre-amp filters: tight (HP) then tone (LP) --------------------
         {
             if (lanes == 1)
@@ -224,6 +248,24 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
         // ---- amp + DC blocker ----------------------------------------------
         float* lanePtrs[2] = {lane0.data(), lane1.data()};
         engine.process(lanePtrs, lanes, n);
+
+        // Bypass crossfade back toward the post-trim dry signal.
+        applyGainRamp(ampMix, n);
+        for (int s = 0; s < n; ++s)
+        {
+            const float mix = gainRamp[static_cast<size_t>(s)];
+            lane0[static_cast<size_t>(s)] = mix * lane0[static_cast<size_t>(s)]
+                                            + (1.0f - mix) * ampDry0[static_cast<size_t>(s)];
+        }
+        if (lanes == 2)
+            for (int s = 0; s < n; ++s)
+            {
+                const float mix = gainRamp[static_cast<size_t>(s)];
+                lane1[static_cast<size_t>(s)] =
+                    mix * lane1[static_cast<size_t>(s)]
+                    + (1.0f - mix) * ampDry1[static_cast<size_t>(s)];
+            }
+        } // ampFullyOff
 
         // ---- IR stage ------------------------------------------------------
         int wetLanes = lanes;
@@ -499,6 +541,7 @@ void Processor::capturePresetSnapshot(const juce::String& pendingModelPath)
     presetSnapshot.drive = driveDb->load();
     presetSnapshot.quality = slimParam->load();
     presetSnapshot.irEnabled = irEnabledParam->load() >= 0.5f;
+    presetSnapshot.ampEnabled = ampEnabledParam->load() >= 0.5f;
     presetSnapshot.stereoMode = static_cast<int>(stereoIrModeParam->load());
     presetSnapshot.tight = tightParam->load();
     presetSnapshot.tone = toneParam->load();
@@ -518,6 +561,8 @@ bool Processor::isPresetDirty() const
     if (std::abs(slimParam->load() - presetSnapshot.quality) > 1.0e-3f)
         return true;
     if ((irEnabledParam->load() >= 0.5f) != presetSnapshot.irEnabled)
+        return true;
+    if ((ampEnabledParam->load() >= 0.5f) != presetSnapshot.ampEnabled)
         return true;
     if (static_cast<int>(stereoIrModeParam->load()) != presetSnapshot.stereoMode)
         return true;
@@ -554,6 +599,7 @@ bool Processor::savePreset(const juce::String& name)
     params->setProperty("quality", slimParam->load());
     params->setProperty("ir_enabled", irEnabledParam->load() >= 0.5f);
     params->setProperty("stereo_ir_mode", static_cast<int>(stereoIrModeParam->load()));
+    params->setProperty("amp_enabled", ampEnabledParam->load() >= 0.5f);
     params->setProperty("tight", tightParam->load());
     params->setProperty("tone", toneParam->load());
     // Reserved: per-model output trim for wrong-metadata models. No UI yet.
@@ -611,6 +657,10 @@ bool Processor::loadPreset(const juce::String& name)
                            static_cast<bool>(params->getProperty("ir_enabled")) ? 1.0f : 0.0f);
         setParamFromPreset(state::param_ids::stereoIrMode,
                            static_cast<int>(params->getProperty("stereo_ir_mode")));
+        if (params->hasProperty("amp_enabled"))
+            setParamFromPreset(state::param_ids::ampEnabled,
+                               static_cast<bool>(params->getProperty("amp_enabled")) ? 1.0f
+                                                                                     : 0.0f);
         if (params->hasProperty("tight"))
             setParamFromPreset(state::param_ids::tight, params->getProperty("tight"));
         if (params->hasProperty("tone"))

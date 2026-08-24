@@ -130,7 +130,7 @@ private:
         bool valid = false;
         juce::String modelPath, irPath;
         float drive = 0, quality = 0, tight = 20, tone = 20000;
-        bool irEnabled = true;
+        bool irEnabled = true, ampEnabled = true;
         int stereoMode = 0;
     } presetSnapshot;
     void capturePresetSnapshot(const juce::String& pendingModelPath);
@@ -142,6 +142,7 @@ private:
     std::atomic<float>* trimDb = nullptr;
     std::atomic<float>* slimParam = nullptr;
     std::atomic<float>* irEnabledParam = nullptr;
+    std::atomic<float>* ampEnabledParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
     std::atomic<float>* tightParam = nullptr;
@@ -159,7 +160,7 @@ private:
     // outputGain: measured-rise compensation + normalization (no user volume
     // in Raw — raw means raw).
     juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> trimGain, driveGain, outputGain,
-        irMix;
+        irMix, ampMix;
 
     // Post-trim input peak for the staging meter (audio writes, UI consumes).
     std::atomic<float> inputPeak{0.0f};
@@ -182,7 +183,7 @@ private:
     std::atomic<int> irNumChannels{0};
 
     // Preallocated lane workspaces (prepareToPlay).
-    std::vector<float> lane0, lane1, dry0, dry1, quadB0, quadB1, gainRamp;
+    std::vector<float> lane0, lane1, dry0, dry1, ampDry0, ampDry1, quadB0, quadB1, gainRamp;
     int preparedBlockSize = 0;
     int busInputChannels = 2, busOutputChannels = 2; // cached for resolve
 

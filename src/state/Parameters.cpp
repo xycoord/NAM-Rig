@@ -42,6 +42,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         param_ids::slim, "Quality", NormalisableRange<float>{0.0f, 1.0f, 0.01f}, 1.0f));
 
     layout.add(std::make_unique<AudioParameterBool>(param_ids::irEnabled, "IR", true));
+    layout.add(std::make_unique<AudioParameterBool>(param_ids::ampEnabled, "Amp", true));
 
     {
         NormalisableRange<float> r{20.0f, 120.0f, 0.1f};

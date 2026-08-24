@@ -22,6 +22,7 @@ public:
     ~Editor() override;
 
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;
     void resized() override;
 
 private:
@@ -149,6 +150,31 @@ private:
         Kind kind;
     };
 
+    // Header power switch: classic power glyph, accent when on.
+    class PowerButton final : public juce::Button
+    {
+    public:
+        PowerButton() : juce::Button({}) { setClickingTogglesState(true); }
+        void paintButton(juce::Graphics& g, bool highlighted, bool) override
+        {
+            const auto on = getToggleState();
+            auto colour = on ? theme::colours::accent
+                             : theme::colours::textSecondary.withAlpha(0.55f);
+            if (highlighted)
+                colour = colour.brighter(0.15f);
+            g.setColour(colour);
+            const auto b = getLocalBounds().toFloat().reduced(3.0f);
+            const auto c = b.getCentre();
+            const float radius = juce::jmin(b.getWidth(), b.getHeight()) / 2.0f - 1.0f;
+            juce::Path arc;
+            arc.addCentredArc(c.x, c.y, radius, radius, 0.0f,
+                              juce::MathConstants<float>::pi * 0.22f,
+                              juce::MathConstants<float>::pi * 1.78f, true);
+            g.strokePath(arc, juce::PathStrokeType{1.8f});
+            g.drawLine(c.x, c.y - radius - 1.0f, c.x, c.y - radius * 0.15f, 1.8f);
+        }
+    };
+
     // Selector row: prev / name-as-button / next / clear. The name opens
     // the picker; arrows step through the current folder while playing.
     struct SelectorRow
@@ -191,9 +217,11 @@ private:
     void rebuildQualityLevels(const std::vector<double>& breakpoints);
     void syncQualitySelection();
 
+    PowerButton ampPower, irPower;
+    std::unique_ptr<ButtonAttachment> ampPowerAttachment, irPowerAttachment;
+
     // CAB / IR.
     SelectorRow irRow;
-    juce::ToggleButton irToggle{"Enabled"};
     juce::ComboBox stereoIrBox; // visible only when it means something
     std::unique_ptr<ButtonAttachment> irToggleAttachment;
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
