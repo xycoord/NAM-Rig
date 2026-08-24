@@ -148,6 +148,8 @@ void Editor::StagingMeter::paint(juce::Graphics& g)
     auto r = getLocalBounds().toFloat();
     g.setColour(inset);
     g.fillRoundedRectangle(r, 3.0f);
+    g.setColour(kFrame);
+    g.drawRoundedRectangle(r.reduced(0.5f), 3.0f, 1.0f);
 
     auto yFor = [&](float db) {
         const float t = juce::jlimit(0.0f, 1.0f, (db - kMeterFloorDb) / (0.0f - kMeterFloorDb));
@@ -165,21 +167,21 @@ void Editor::StagingMeter::paint(juce::Graphics& g)
     // plain accent with red-above-clip for the output strip.
     const bool inZone = showZone && levelDb >= kTargetLowDb && levelDb <= kTargetHighDb;
     const bool hot = showZone ? levelDb > kTargetHighDb : levelDb > -1.0f;
-    g.setColour(hot ? kError : (inZone ? kOk : kAccent.withAlpha(0.8f)));
+    g.setColour(hot ? kError : (inZone ? kOk : kAccent));
     const float top = yFor(levelDb);
     g.fillRect(juce::Rectangle<float>{r.getX() + 2.0f, top, r.getWidth() - 4.0f,
                                       juce::jmax(0.0f, r.getBottom() - top - 2.0f)});
 
     // dB scale: hairlines with labels, drawn over the bar.
-    g.setFont(juce::FontOptions{9.0f});
+    g.setFont(juce::FontOptions{10.5f}.withStyle("Bold"));
     for (const float db : {-6.0f, -18.0f, -30.0f, -42.0f})
     {
         const float y = yFor(db);
-        g.setColour(kBackground.withAlpha(0.6f));
-        g.fillRect(juce::Rectangle<float>{r.getX(), y, r.getWidth(), 1.0f});
-        g.setColour(kDim);
+        g.setColour(kFrame);
+        g.fillRect(juce::Rectangle<float>{r.getX() + 1.0f, y, r.getWidth() - 2.0f, 1.0f});
+        g.setColour(kText.withAlpha(0.85f));
         g.drawText(juce::String{static_cast<int>(db)},
-                   juce::Rectangle<float>{r.getX(), y - 11.0f, r.getWidth(), 10.0f},
+                   juce::Rectangle<float>{r.getX(), y - 13.0f, r.getWidth(), 12.0f},
                    juce::Justification::centred);
     }
 
