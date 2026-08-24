@@ -47,6 +47,9 @@ Processor::Processor()
     ampEnabledParam = state.getRawParameterValue(state::param_ids::ampEnabled.getParamID());
     verbSendParam = state.getRawParameterValue(state::param_ids::verbSend.getParamID());
     verbEnabledParam = state.getRawParameterValue(state::param_ids::verbEnabled.getParamID());
+    verbPredelayParam = state.getRawParameterValue(state::param_ids::verbPredelay.getParamID());
+    verbHpfParam = state.getRawParameterValue(state::param_ids::verbHpf.getParamID());
+    verbLpfParam = state.getRawParameterValue(state::param_ids::verbLpf.getParamID());
     channelsParam = state.getRawParameterValue(state::param_ids::channels.getParamID());
     stereoIrModeParam = state.getRawParameterValue(state::param_ids::stereoIrMode.getParamID());
     tightParam = state.getRawParameterValue(state::param_ids::tight.getParamID());
@@ -86,6 +89,21 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     convPrimary.prepare(spec);
     convQuadB.prepare(spec);
     convVerb.prepare(spec);
+    verbHpfFilter.prepare(spec);
+    verbHpfFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
+    verbHpfFilter.setResonance(0.7071f);
+    verbLpfFilter.prepare(spec);
+    verbLpfFilter.setType(juce::dsp::StateVariableTPTFilterType::lowpass);
+    verbLpfFilter.setResonance(0.7071f);
+    verbDelay.setMaximumDelayInSamples(static_cast<int>(sampleRate * 0.125) + 8);
+    verbDelay.prepare(spec);
+    verbDelaySamples.reset(sampleRate / preparedBlockSize, 0.05);
+    verbDelaySamples.setCurrentAndTargetValue(
+        static_cast<float>(verbPredelayParam->load() * sampleRate / 1000.0));
+    for (auto* sm : {&verbHpfHz, &verbLpfHz})
+        sm->reset(sampleRate / preparedBlockSize, 0.05);
+    verbHpfHz.setCurrentAndTargetValue(verbHpfParam->load());
+    verbLpfHz.setCurrentAndTargetValue(verbLpfParam->load());
 
     tightFilter.prepare(spec);
     tightFilter.setType(juce::dsp::StateVariableTPTFilterType::highpass);
@@ -170,6 +188,10 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     verbSendGain.setTargetValue((verbOn && sendDb > -59.5f)
                                     ? juce::Decibels::decibelsToGain(sendDb)
                                     : 0.0f);
+    verbDelaySamples.setTargetValue(
+        static_cast<float>(verbPredelayParam->load() * getSampleRate() / 1000.0));
+    verbHpfHz.setTargetValue(verbHpfParam->load());
+    verbLpfHz.setTargetValue(verbLpfParam->load());
 
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)
     {
@@ -361,6 +383,24 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
                 float* ch[2] = {verb0.data(), verb1.data()};
                 juce::dsp::AudioBlock<float> block{ch, 2, static_cast<size_t>(n)};
                 juce::dsp::ProcessContextReplacing<float> ctx{block};
+
+                // Abbey Road trick: shape what reaches the chamber.
+                const float hp = verbHpfHz.getNextValue();
+                if (hp > 22.0f)
+                {
+                    verbHpfFilter.setCutoffFrequency(hp);
+                    verbHpfFilter.process(ctx);
+                }
+                const float lp = verbLpfHz.getNextValue();
+                if (lp < 19000.0f)
+                {
+                    verbLpfFilter.setCutoffFrequency(lp);
+                    verbLpfFilter.process(ctx);
+                }
+
+                verbDelay.setDelay(verbDelaySamples.getNextValue());
+                verbDelay.process(ctx);
+
                 convVerb.process(ctx);
             }
 
@@ -596,6 +636,9 @@ void Processor::capturePresetSnapshot(const juce::String& pendingModelPath)
     presetSnapshot.tight = tightParam->load();
     presetSnapshot.verbSend = verbSendParam->load();
     presetSnapshot.verbEnabled = verbEnabledParam->load() >= 0.5f;
+    presetSnapshot.verbPredelay = verbPredelayParam->load();
+    presetSnapshot.verbHpf = verbHpfParam->load();
+    presetSnapshot.verbLpf = verbLpfParam->load();
     presetSnapshot.verbPath = verbPath;
     presetSnapshot.tone = toneParam->load();
 }
@@ -626,6 +669,12 @@ bool Processor::isPresetDirty() const
     if (verbPath != presetSnapshot.verbPath)
         return true;
     if ((verbEnabledParam->load() >= 0.5f) != presetSnapshot.verbEnabled)
+        return true;
+    if (std::abs(verbPredelayParam->load() - presetSnapshot.verbPredelay) > 0.5f)
+        return true;
+    if (std::abs(verbHpfParam->load() - presetSnapshot.verbHpf) > 0.5f)
+        return true;
+    if (std::abs(verbLpfParam->load() - presetSnapshot.verbLpf) > 10.0f)
         return true;
     if (std::abs(toneParam->load() - presetSnapshot.tone) > 10.0f)
         return true;
@@ -664,6 +713,9 @@ bool Processor::savePreset(const juce::String& name)
     params->setProperty("amp_enabled", ampEnabledParam->load() >= 0.5f);
     params->setProperty("verb_send", verbSendParam->load());
     params->setProperty("verb_enabled", verbEnabledParam->load() >= 0.5f);
+    params->setProperty("verb_predelay", verbPredelayParam->load());
+    params->setProperty("verb_hpf", verbHpfParam->load());
+    params->setProperty("verb_lpf", verbLpfParam->load());
     params->setProperty("tight", tightParam->load());
     params->setProperty("tone", toneParam->load());
     // Reserved: per-model output trim for wrong-metadata models. No UI yet.
@@ -739,6 +791,13 @@ bool Processor::loadPreset(const juce::String& name)
             setParamFromPreset(state::param_ids::verbEnabled,
                                static_cast<bool>(params->getProperty("verb_enabled")) ? 1.0f
                                                                                       : 0.0f);
+        if (params->hasProperty("verb_predelay"))
+            setParamFromPreset(state::param_ids::verbPredelay,
+                               params->getProperty("verb_predelay"));
+        if (params->hasProperty("verb_hpf"))
+            setParamFromPreset(state::param_ids::verbHpf, params->getProperty("verb_hpf"));
+        if (params->hasProperty("verb_lpf"))
+            setParamFromPreset(state::param_ids::verbLpf, params->getProperty("verb_lpf"));
         if (params->hasProperty("verb_send"))
             setParamFromPreset(state::param_ids::verbSend, params->getProperty("verb_send"));
         if (params->hasProperty("tight"))

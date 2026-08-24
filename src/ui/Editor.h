@@ -277,9 +277,10 @@ private:
 
     // REVERB (parallel IR send).
     SelectorRow verbRow;
-    juce::Label sendCaption;
-    KnobSlider sendSlider;
-    std::unique_ptr<SliderAttachment> sendAttachment;
+    juce::Label predelayCaption, verbHpfCaption, verbLpfCaption, sendCaption;
+    KnobSlider predelaySlider, verbHpfSlider, verbLpfSlider, sendSlider;
+    std::unique_ptr<SliderAttachment> predelayAttachment, verbHpfAttachment, verbLpfAttachment,
+        sendAttachment;
     void stepVerb(int delta);
     void chooseVerb();
     juce::ComboBox stereoIrBox; // visible only when it means something

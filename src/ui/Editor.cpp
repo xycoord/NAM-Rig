@@ -404,6 +404,30 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     verbRow.clear.onClick = [this] { processor.clearVerbIr(); };
     verbRow.name.setTooltip("Click to pick a reverb IR; arrows step through its folder.");
 
+    knob(predelaySlider, 0.0);
+    predelaySlider.setTextValueSuffix({});
+    predelaySlider.setTooltip("Delay before the reverb starts: separates the dry "
+                              "attack from the room.");
+    predelayAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::verbPredelay.getParamID(), predelaySlider);
+    caption(predelayCaption, "Pre-delay");
+
+    knob(verbHpfSlider, 20.0);
+    verbHpfSlider.setTextValueSuffix({});
+    verbHpfSlider.setTooltip("Filters lows out of the reverb send (the Abbey Road "
+                             "trick, ~600 Hz): keeps the room out of the mud.");
+    verbHpfAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::verbHpf.getParamID(), verbHpfSlider);
+    caption(verbHpfCaption, "HPF");
+
+    knob(verbLpfSlider, 20000.0);
+    verbLpfSlider.setTextValueSuffix({});
+    verbLpfSlider.setTooltip("Filters highs out of the reverb send (~10 kHz for the "
+                             "classic dark chamber): no fizzy tails.");
+    verbLpfAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::verbLpf.getParamID(), verbLpfSlider);
+    caption(verbLpfCaption, "LPF");
+
     knob(sendSlider, -20.0);
     sendSlider.setTooltip("Reverb send level. At the floor the send is off; "
                           "with no reverb IR loaded nothing is sent at all.");
@@ -471,7 +495,8 @@ void Editor::timerCallback()
                                          .getFileNameWithoutExtension()
                                    : juce::String{"Select reverb IR..."});
     verbRow.clear.setEnabled(processor.isVerbLoaded());
-    sendSlider.setEnabled(processor.isVerbLoaded());
+    for (auto* sl : {&sendSlider, &predelaySlider, &verbHpfSlider, &verbLpfSlider})
+        sl->setEnabled(processor.isVerbLoaded());
 
     irRow.name.setButtonText(processor.isIrLoaded()
                                  ? juce::File{processor.getIrPath()}
@@ -853,20 +878,27 @@ void Editor::resized()
             stereoIrBox.setBounds(r.removeFromTop(24).removeFromLeft(140));
     }
 
-    // REVERB: selector row + send knob.
+    // REVERB: selector row + knob row (Pre-delay, HPF, LPF, Send).
     {
         auto r = verbArea.withTrimmedTop(header).reduced(10, 6);
         verbRow.layout(r.removeFromTop(26));
-        r.removeFromTop(4);
-        const int labelH = 15;
-        const int dia = juce::jmin(r.getWidth(), r.getHeight() - labelH) - 2;
-        if (dia > 20)
-        {
-            const auto knobArea = juce::Rectangle<int>{dia, dia}.withCentre(
-                {r.getCentreX(), r.getY() + (r.getHeight() - dia - labelH) / 3 + dia / 2});
-            sendSlider.setBounds(knobArea);
-            sendCaption.setBounds(r.getX(), knobArea.getBottom() - 7, r.getWidth(), labelH);
-        }
+        r.removeFromTop(6);
+        auto placeKnob = [](juce::Rectangle<int> cell, juce::Label& cap, juce::Slider& sl) {
+            const int labelH = 15;
+            const int dia = juce::jmin(cell.getWidth(), cell.getHeight() - labelH) - 2;
+            if (dia < 20)
+                return;
+            const int top = cell.getY() + (cell.getHeight() - dia - labelH) / 3;
+            const auto knobArea =
+                juce::Rectangle<int>{dia, dia}.withCentre({cell.getCentreX(), top + dia / 2});
+            sl.setBounds(knobArea);
+            cap.setBounds(cell.getX(), knobArea.getBottom() - 7, cell.getWidth(), labelH);
+        };
+        const int cellW = r.getWidth() / 4;
+        placeKnob(r.removeFromLeft(cellW), predelayCaption, predelaySlider);
+        placeKnob(r.removeFromLeft(cellW), verbHpfCaption, verbHpfSlider);
+        placeKnob(r.removeFromLeft(cellW), verbLpfCaption, verbLpfSlider);
+        placeKnob(r, sendCaption, sendSlider);
     }
 
 }

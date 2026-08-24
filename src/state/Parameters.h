@@ -37,6 +37,11 @@ inline const juce::ParameterID tight{"tight", 1};
 inline const juce::ParameterID tone{"tone", 1};
 // Reverb on/off (IR stays loaded; the tail rings out on bypass).
 inline const juce::ParameterID verbEnabled{"verb_enabled", 1};
+// Reverb send shaping (the Abbey Road trick: filter what reaches the
+// chamber) and pre-delay.
+inline const juce::ParameterID verbPredelay{"verb_predelay", 1};
+inline const juce::ParameterID verbHpf{"verb_hpf", 1};
+inline const juce::ParameterID verbLpf{"verb_lpf", 1};
 // Reverb IR send level; the floor (-60) means off. No verb IR loaded =
 // the stage is skipped entirely.
 inline const juce::ParameterID verbSend{"verb_send", 1};

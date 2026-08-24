@@ -136,6 +136,7 @@ private:
         bool valid = false;
         juce::String modelPath, irPath;
         float drive = 0, quality = 0, tight = 20, tone = 20000, verbSend = -20;
+        float verbPredelay = 0, verbHpf = 20, verbLpf = 20000;
         juce::String verbPath;
         bool irEnabled = true, ampEnabled = true, verbEnabled = true;
         int stereoMode = 0;
@@ -152,6 +153,9 @@ private:
     std::atomic<float>* ampEnabledParam = nullptr;
     std::atomic<float>* verbSendParam = nullptr;
     std::atomic<float>* verbEnabledParam = nullptr;
+    std::atomic<float>* verbPredelayParam = nullptr;
+    std::atomic<float>* verbHpfParam = nullptr;
+    std::atomic<float>* verbLpfParam = nullptr;
     std::atomic<float>* channelsParam = nullptr;
     std::atomic<float>* stereoIrModeParam = nullptr;
     std::atomic<float>* tightParam = nullptr;
@@ -186,6 +190,10 @@ private:
     // IR stage. convPrimary serves 1ch and 2ch IRs (and the LL/LR half of a
     // quad); convQuadB is the RL/RR half, processed only in quad topology.
     juce::dsp::Convolution convPrimary, convQuadB, convVerb;
+    juce::dsp::StateVariableTPTFilter<float> verbHpfFilter, verbLpfFilter; // 12 dB/oct
+    juce::dsp::DelayLine<float, juce::dsp::DelayLineInterpolationTypes::Linear> verbDelay;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> verbDelaySamples;
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Multiplicative> verbHpfHz, verbLpfHz;
     juce::AudioFormatManager irFormats;
     juce::String irPath;
     std::atomic<bool> irLoaded{false};

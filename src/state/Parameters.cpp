@@ -49,6 +49,31 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         param_ids::verbSend, "Reverb Send", NormalisableRange<float>{-60.0f, 0.0f, 0.1f},
         -20.0f, AudioParameterFloatAttributes{}.withLabel("dB")));
 
+    layout.add(std::make_unique<AudioParameterFloat>(
+        param_ids::verbPredelay, "Reverb Pre-delay",
+        NormalisableRange<float>{0.0f, 120.0f, 0.5f}, 0.0f,
+        AudioParameterFloatAttributes{}.withStringFromValueFunction(
+            [](float v, int) { return juce::String{static_cast<int>(std::lround(v))} + " ms"; })));
+
+    {
+        NormalisableRange<float> r{20.0f, 1000.0f, 1.0f};
+        r.setSkewForCentre(250.0f);
+        layout.add(std::make_unique<AudioParameterFloat>(
+            param_ids::verbHpf, "Reverb HPF", r, 20.0f,
+            AudioParameterFloatAttributes{}
+                .withStringFromValueFunction(hzToText)
+                .withValueFromStringFunction(textToHz)));
+    }
+    {
+        NormalisableRange<float> r{1000.0f, 20000.0f, 1.0f};
+        r.setSkewForCentre(6000.0f);
+        layout.add(std::make_unique<AudioParameterFloat>(
+            param_ids::verbLpf, "Reverb LPF", r, 20000.0f,
+            AudioParameterFloatAttributes{}
+                .withStringFromValueFunction(hzToText)
+                .withValueFromStringFunction(textToHz)));
+    }
+
     {
         NormalisableRange<float> r{20.0f, 120.0f, 0.1f};
         r.setSkewForCentre(50.0f);
