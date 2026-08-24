@@ -96,10 +96,34 @@ private:
     std::unique_ptr<SliderAttachment> trimAttachment;
     std::unique_ptr<ComboAttachment> channelsAttachment;
 
+    // Selector row: prev / name-as-button / next / clear. The name opens
+    // the picker; arrows step through the current folder while playing.
+    struct SelectorRow
+    {
+        juce::TextButton prev{juce::CharPointer_UTF8{"\xe2\x80\xb9"}},
+            next{juce::CharPointer_UTF8{"\xe2\x80\xba"}},
+            name, clear{juce::CharPointer_UTF8{"\xe2\x9c\x95"}};
+        void addTo(juce::Component& parent)
+        {
+            for (auto* b : {&prev, &name, &next, &clear})
+                parent.addAndMakeVisible(*b);
+        }
+        void layout(juce::Rectangle<int> row)
+        {
+            prev.setBounds(row.removeFromLeft(26));
+            row.removeFromLeft(4);
+            clear.setBounds(row.removeFromRight(26));
+            row.removeFromRight(4);
+            next.setBounds(row.removeFromRight(26));
+            row.removeFromRight(4);
+            name.setBounds(row);
+        }
+    };
+    void stepModel(int delta);
+    void stepIr(int delta);
+
     // AMP: model + drive + quality.
-    juce::TextButton loadModelButton{"Load..."};
-    juce::TextButton clearModelButton{"Clear"};
-    juce::Label modelStatusLabel;
+    SelectorRow modelRow;
     juce::Label normStatusLabel; // normalization offset / missing-metadata flag
     juce::Label driveCaption;
     juce::Slider driveSlider;
@@ -112,10 +136,8 @@ private:
     void syncQualitySelection();
 
     // CAB / IR.
-    juce::TextButton loadIrButton{"Load..."};
-    juce::TextButton clearIrButton{"Clear"};
+    SelectorRow irRow;
     juce::ToggleButton irToggle{"Enabled"};
-    juce::Label irStatusLabel;
     juce::ComboBox stereoIrBox; // visible only when it means something
     std::unique_ptr<ButtonAttachment> irToggleAttachment;
     std::unique_ptr<ComboAttachment> stereoIrAttachment;

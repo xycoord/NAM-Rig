@@ -305,13 +305,12 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     caption(channelsCaption, "Channels", juce::Justification::centredLeft);
 
     // --- AMP ---
-    loadModelButton.onClick = [this] { chooseModel(); };
-    addAndMakeVisible(loadModelButton);
-    clearModelButton.onClick = [this] { processor.getEngine().models().requestClear(); };
-    addAndMakeVisible(clearModelButton);
-
-    modelStatusLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(modelStatusLabel);
+    modelRow.addTo(*this);
+    modelRow.name.onClick = [this] { chooseModel(); };
+    modelRow.prev.onClick = [this] { stepModel(-1); };
+    modelRow.next.onClick = [this] { stepModel(1); };
+    modelRow.clear.onClick = [this] { processor.getEngine().models().requestClear(); };
+    modelRow.name.setTooltip("Click to pick a model; arrows step through its folder.");
 
     normStatusLabel.setJustificationType(juce::Justification::centred);
     normStatusLabel.setColour(juce::Label::textColourId, kDim);
@@ -341,17 +340,16 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     qualityBox.setVisible(false);
 
     // --- CAB / IR ---
-    loadIrButton.onClick = [this] { chooseIr(); };
-    addAndMakeVisible(loadIrButton);
-    clearIrButton.onClick = [this] { processor.clearIr(); };
-    addAndMakeVisible(clearIrButton);
+    irRow.addTo(*this);
+    irRow.name.onClick = [this] { chooseIr(); };
+    irRow.prev.onClick = [this] { stepIr(-1); };
+    irRow.next.onClick = [this] { stepIr(1); };
+    irRow.clear.onClick = [this] { processor.clearIr(); };
+    irRow.name.setTooltip("Click to pick an IR; arrows step through its folder.");
 
     irToggleAttachment = std::make_unique<ButtonAttachment>(
         state, state::param_ids::irEnabled.getParamID(), irToggle);
     addAndMakeVisible(irToggle);
-
-    irStatusLabel.setJustificationType(juce::Justification::centred);
-    addAndMakeVisible(irStatusLabel);
 
     attachCombo(stereoIrBox, state::param_ids::stereoIrMode, stereoIrAttachment);
     stereoIrBox.setTooltip("How a 2-channel IR is used when processing in stereo: "
@@ -380,24 +378,11 @@ void Editor::timerCallback()
 
     const auto info = processor.getEngine().models().info();
 
-    if (!info.error.empty())
-    {
-        modelStatusLabel.setColour(juce::Label::textColourId, kError);
-        modelStatusLabel.setText("Failed: " + juce::String(info.error),
-                                 juce::dontSendNotification);
-    }
-    else if (info.loaded)
-    {
-        modelStatusLabel.setColour(juce::Label::textColourId, kText);
-        modelStatusLabel.setText(juce::File(info.path).getFileNameWithoutExtension(),
-                                 juce::dontSendNotification);
-    }
-    else
-    {
-        modelStatusLabel.setColour(juce::Label::textColourId, kDim);
-        modelStatusLabel.setText("No model", juce::dontSendNotification);
-    }
-    clearModelButton.setEnabled(info.loaded);
+    modelRow.name.setButtonText(info.loaded
+                                    ? juce::File{juce::String{info.path}}
+                                          .getFileNameWithoutExtension()
+                                    : juce::String{"Select model..."});
+    modelRow.clear.setEnabled(info.loaded);
 
     // Quality: a row of the model's real discrete levels; absent entirely
     // when the model isn't slimmable (silence is health).
@@ -416,18 +401,11 @@ void Editor::timerCallback()
     if (showQuality)
         syncQualitySelection();
 
-    if (processor.isIrLoaded())
-    {
-        irStatusLabel.setColour(juce::Label::textColourId, kText);
-        irStatusLabel.setText(juce::File(processor.getIrPath()).getFileNameWithoutExtension(),
-                              juce::dontSendNotification);
-    }
-    else
-    {
-        irStatusLabel.setColour(juce::Label::textColourId, kDim);
-        irStatusLabel.setText("No IR", juce::dontSendNotification);
-    }
-    clearIrButton.setEnabled(processor.isIrLoaded());
+    irRow.name.setButtonText(processor.isIrLoaded()
+                                 ? juce::File{processor.getIrPath()}
+                                       .getFileNameWithoutExtension()
+                                 : juce::String{"Select IR..."});
+    irRow.clear.setEnabled(processor.isIrLoaded());
 
     const bool policyRelevant = processor.isStereoIrPolicyRelevant();
     if (stereoIrBox.isVisible() != policyRelevant)
@@ -438,7 +416,14 @@ void Editor::timerCallback()
 
     // Level management working correctly is invisible; only the case that
     // needs the user's attention gets a line (never a silent fallback).
-    if (info.loaded && !info.hasLoudness)
+    // Load failures take priority over the metadata note.
+    if (!info.error.empty())
+    {
+        normStatusLabel.setColour(juce::Label::textColourId, kError);
+        normStatusLabel.setText("Load failed: " + juce::String(info.error),
+                                juce::dontSendNotification);
+    }
+    else if (info.loaded && !info.hasLoudness)
     {
         normStatusLabel.setColour(juce::Label::textColourId, kError);
         normStatusLabel.setText("volume not managed (model lacks loudness data)",
@@ -450,6 +435,46 @@ void Editor::timerCallback()
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
     channelsBox.changeItemText(
         1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
+}
+
+static juce::Array<juce::File> listSorted(const juce::File& dir, const juce::String& patterns)
+{
+    auto files = dir.findChildFiles(juce::File::findFiles, false, patterns);
+    files.sort();
+    return files;
+}
+
+static juce::File stepIn(const juce::Array<juce::File>& files, const juce::File& current,
+                         const int delta)
+{
+    if (files.isEmpty())
+        return {};
+    const int idx = files.indexOf(current);
+    if (idx < 0)
+        return files[0];
+    return files[(idx + delta + files.size()) % files.size()];
+}
+
+void Editor::stepModel(const int delta)
+{
+    const auto info = processor.getEngine().models().info();
+    const juce::File current{juce::String{info.path}};
+    const auto dir = info.loaded ? current.getParentDirectory()
+                                 : processor.getLibrary().modelsDir();
+    const auto target = stepIn(listSorted(dir, "*.nam"), current, delta);
+    if (target.existsAsFile())
+        processor.getEngine().models().requestLoad(target.getFullPathName().toStdString());
+}
+
+void Editor::stepIr(const int delta)
+{
+    const juce::File current{processor.getIrPath()};
+    const auto dir = processor.isIrLoaded() ? current.getParentDirectory()
+                                            : processor.getLibrary().irRoot();
+    const auto target =
+        stepIn(listSorted(dir, "*.wav;*.aif;*.aiff;*.flac"), current, delta);
+    if (target.existsAsFile())
+        processor.loadIr(target);
 }
 
 void Editor::rebuildQualityLevels(const std::vector<double>& breakpoints)
@@ -586,7 +611,7 @@ void Editor::resized()
     area.removeFromRight(gap);
     auto inputArea = area.removeFromLeft(118); // fixed: a channel strip, not a panel that grows
     area.removeFromLeft(gap);
-    const int half = (area.getWidth() - gap) / 2;
+    const int half = (area.getWidth() - gap) * 11 / 20; // AMP slightly wider
     auto ampArea = area.removeFromLeft(half);
     area.removeFromLeft(gap);
     auto irArea = area;
@@ -615,15 +640,11 @@ void Editor::resized()
         trimSlider.setBounds(pair);
     }
 
-    // AMP: model row, name, drive knob, quality.
+    // AMP: selector row, status line, drive knob, quality.
     {
         auto r = ampArea.withTrimmedTop(header).reduced(10);
-        auto buttons = r.removeFromTop(26);
-        loadModelButton.setBounds(buttons.removeFromLeft(84));
-        buttons.removeFromLeft(6);
-        clearModelButton.setBounds(buttons.removeFromLeft(64));
+        modelRow.layout(r.removeFromTop(26));
         r.removeFromTop(4);
-        modelStatusLabel.setBounds(r.removeFromTop(22));
         normStatusLabel.setBounds(r.removeFromTop(16));
         if (qualityBox.isVisible())
         {
@@ -636,19 +657,18 @@ void Editor::resized()
         driveSlider.setBounds(r);
     }
 
-    // CAB / IR.
+    // CAB / IR: selector row, then toggles.
     {
         auto r = irArea.withTrimmedTop(header).reduced(10);
-        auto buttons = r.removeFromTop(26);
-        loadIrButton.setBounds(buttons.removeFromLeft(84));
-        buttons.removeFromLeft(6);
-        clearIrButton.setBounds(buttons.removeFromLeft(64));
-        buttons.removeFromLeft(10);
-        irToggle.setBounds(buttons);
-        r.removeFromTop(6);
-        irStatusLabel.setBounds(r.removeFromTop(24));
+        irRow.layout(r.removeFromTop(26));
+        r.removeFromTop(8);
+        auto toggles = r.removeFromTop(24);
+        irToggle.setBounds(toggles.removeFromLeft(90));
         if (stereoIrBox.isVisible())
-            stereoIrBox.setBounds(r.removeFromBottom(24).removeFromLeft(150));
+        {
+            toggles.removeFromLeft(10);
+            stereoIrBox.setBounds(toggles.removeFromLeft(140));
+        }
     }
 
 }
