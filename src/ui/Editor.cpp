@@ -419,9 +419,9 @@ void Editor::resized()
     sections[2] = {irArea, "CAB / IR"};
     sections[3] = {outArea, "OUT"};
 
-    outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8));
-
     const int header = 24;
+
+    outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8));
 
     // INPUT: meter strip on the left; trim + channels beside it.
     {
