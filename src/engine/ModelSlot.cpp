@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <vector>
 
 #include "NAM/get_dsp.h"
 
@@ -13,7 +15,80 @@ namespace namrig::engine
 ModelSlot::ModelSlot()
 {
     registerBuiltinArchitectures();
+    // Identity curve until a model is measured.
+    for (size_t i = 0; i < kDrivePointsDb.size(); ++i)
+        riseDb[i].store(kDrivePointsDb[i], std::memory_order_relaxed);
     worker = std::thread([this] { workerLoop(); });
+}
+
+float ModelSlot::measuredRiseDb(const float driveDb) const
+{
+    const auto& pts = kDrivePointsDb;
+    if (driveDb <= pts.front())
+        return riseDb[0].load(std::memory_order_relaxed);
+    for (size_t i = 1; i < pts.size(); ++i)
+    {
+        if (driveDb <= pts[i])
+        {
+            const float x0 = pts[i - 1], x1 = pts[i];
+            const float y0 = riseDb[i - 1].load(std::memory_order_relaxed);
+            const float y1 = riseDb[i].load(std::memory_order_relaxed);
+            const float t = (driveDb - x0) / (x1 - x0);
+            return y0 + t * (y1 - y0);
+        }
+    }
+    return riseDb[pts.size() - 1].load(std::memory_order_relaxed);
+}
+
+void ModelSlot::measureRiseCurve(ResamplingNam& lane)
+{
+    // Feed a 220 Hz tone at each drive point, measure steady-state output
+    // RMS, and store the rise relative to the drive-0 point. The model is
+    // Reset afterwards so no measurement state reaches the audio thread.
+    const double rate = engineSampleRate.load(std::memory_order_relaxed);
+    const int block = std::min(engineMaxBlock.load(std::memory_order_relaxed), 256);
+    const float baseAmplitude = 0.1f; // ~-20 dBFS peak, a hot guitar-ish level
+    const int settleBlocks = 40, measureBlocks = 40;
+
+    std::vector<float> in(static_cast<size_t>(block)), out(static_cast<size_t>(block));
+    std::array<double, kDrivePointsDb.size()> levelDb{};
+
+    double phase = 0.0;
+    const double phaseInc = 2.0 * 3.14159265358979323846 * 220.0 / rate;
+
+    for (size_t p = 0; p < kDrivePointsDb.size(); ++p)
+    {
+        const float amp = baseAmplitude * std::pow(10.0f, kDrivePointsDb[p] / 20.0f);
+        double sumSq = 0.0;
+        size_t count = 0;
+        for (int b = 0; b < settleBlocks + measureBlocks; ++b)
+        {
+            for (int i = 0; i < block; ++i)
+            {
+                in[static_cast<size_t>(i)] = amp * static_cast<float>(std::sin(phase));
+                phase += phaseInc;
+            }
+            float* ip[1] = {in.data()};
+            float* op[1] = {out.data()};
+            lane.process(ip, op, block);
+            if (b >= settleBlocks)
+            {
+                for (int i = 0; i < block; ++i)
+                    sumSq += static_cast<double>(out[static_cast<size_t>(i)])
+                             * out[static_cast<size_t>(i)];
+                count += static_cast<size_t>(block);
+            }
+        }
+        const double rms = std::sqrt(sumSq / static_cast<double>(count));
+        levelDb[p] = 20.0 * std::log10(std::max(rms, 1.0e-9));
+    }
+
+    const double centre = levelDb[kDrivePointsDb.size() / 2];
+    for (size_t p = 0; p < kDrivePointsDb.size(); ++p)
+        riseDb[p].store(static_cast<float>(levelDb[p] - centre), std::memory_order_relaxed);
+
+    // Back to a clean, prewarmed state before this instance goes live.
+    lane.Reset(rate, engineMaxBlock.load(std::memory_order_relaxed));
 }
 
 ModelSlot::~ModelSlot()
@@ -110,6 +185,8 @@ void ModelSlot::requestLoad(const std::filesystem::path& path)
 
 void ModelSlot::requestClear()
 {
+    for (size_t i = 0; i < kDrivePointsDb.size(); ++i)
+        riseDb[i].store(kDrivePointsDb[i], std::memory_order_relaxed);
     {
         // A parked load would resurrect the model after the clear; drop it.
         std::lock_guard<std::mutex> lock(jobMutex);
@@ -286,6 +363,8 @@ void ModelSlot::loadJob(const std::filesystem::path& path)
         currentInfo.error = e.what();
         return;
     }
+
+    measureRiseCurve(*pair->lane[0]);
 
     ModelPair* raw = pair.get();
     {

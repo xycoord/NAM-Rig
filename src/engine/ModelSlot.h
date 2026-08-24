@@ -38,6 +38,9 @@ struct ModelPair
     int numLanes = 0;
 };
 
+// Drive points (dB) of the measured gain-rise curve.
+inline constexpr std::array<float, 5> kDrivePointsDb{-20.0f, -10.0f, 0.0f, 10.0f, 20.0f};
+
 // Owns the lifecycle of the active NAM model pair and enforces the
 // threading rules from CLAUDE.md:
 //
@@ -69,6 +72,13 @@ public:
     ModelInfo info() const;
 
     int latencySamples() const { return latency.load(std::memory_order_relaxed); }
+
+    // Measured output-level rise (dB, relative to drive 0) for a given drive,
+    // interpolated from the load-time sweep of the current model. Lock-free;
+    // any thread. 'driveDb' for a linear model returns ~driveDb; compressing
+    // models return less — subtract THIS, not the nominal drive, to keep
+    // loudness flat.
+    float measuredRiseDb(float driveDb) const;
 
     // --- audio thread ---
     // Swaps in any pending pair and returns the active one (nullptr = bypass).
@@ -108,6 +118,11 @@ private:
 
     std::atomic<double> slim{1.0};
     std::atomic<int> desiredLanes{1};
+
+    // Gain-rise curve of the most recently published model (written by the
+    // worker just before publish; identity curve when nothing is loaded).
+    std::array<std::atomic<float>, kDrivePointsDb.size()> riseDb{};
+    void measureRiseCurve(ResamplingNam& lane); // worker thread
 
     // Worker job queue: latest-wins for loads.
     std::mutex jobMutex;

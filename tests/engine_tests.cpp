@@ -277,3 +277,28 @@ TEST_CASE("lane count change rebuilds the loaded model")
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     CHECK(slot.info().numLanes == 2);
 }
+
+
+TEST_CASE("measured gain-rise curve is sane for a real model")
+{
+    namrig::engine::ModelSlot slot;
+    slot.prepare(48000.0, 256);
+
+    // Identity before any load: rise == drive.
+    CHECK(std::abs(slot.measuredRiseDb(10.0f) - 10.0f) < 1.0e-3f);
+
+    slot.requestLoad(kModelsDir / "wavenet.nam");
+    REQUIRE(waitForLoad(slot, std::chrono::seconds(60)));
+
+    // By construction the centre point is 0.
+    CHECK(std::abs(slot.measuredRiseDb(0.0f)) < 1.0e-3f);
+    // Monotonic: more drive never gets quieter overall.
+    const float lo = slot.measuredRiseDb(-20.0f);
+    const float hi = slot.measuredRiseDb(20.0f);
+    CHECK(lo < 0.0f);
+    CHECK(hi > 0.0f);
+    // A real amp capture can't rise faster than linear across +/-20 dB by
+    // any large margin, and compression means it usually rises less.
+    CHECK(hi <= 21.0f);
+    CHECK(lo >= -21.0f);
+}

@@ -81,7 +81,8 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     const float drive0 = driveDb->load();
     inputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(drive0));
     outputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
-        trimDb->load() - drive0 + normalizationOffsetDb.load(std::memory_order_relaxed)));
+        trimDb->load() - engine.models().measuredRiseDb(drive0)
+        + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
 }
 
@@ -118,12 +119,15 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     const auto topo = static_cast<IrTopology>(irTopology.load(std::memory_order_relaxed));
     const bool haveIr = irLoaded.load(std::memory_order_relaxed);
 
-    // Compensated drive: what goes up before the model comes back down
-    // after it, so Drive changes character at (near) constant loudness.
+    // Compensated drive: subtract the model's MEASURED output rise for this
+    // drive (from the load-time sweep), not the nominal drive — compressing
+    // models raise their output less than the input push, and assuming
+    // linearity made drive audibly duck. Identity curve when no model.
     const float drive = driveDb->load();
     inputGain.setTargetValue(juce::Decibels::decibelsToGain(drive));
     outputGain.setTargetValue(juce::Decibels::decibelsToGain(
-        trimDb->load() - drive + normalizationOffsetDb.load(std::memory_order_relaxed)));
+        trimDb->load() - engine.models().measuredRiseDb(drive)
+        + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
 
     for (int offset = 0; offset < totalFrames; offset += preparedBlockSize)
