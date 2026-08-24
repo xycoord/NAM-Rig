@@ -183,7 +183,12 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     addAndMakeVisible(meter);
     addAndMakeVisible(outputMeter);
 
-    knob(trimSlider);
+    // Trim is calibration, not performance: a fader beside the meter it
+    // serves (channel-strip idiom), not a knob inviting play.
+    trimSlider.setSliderStyle(juce::Slider::LinearVertical);
+    trimSlider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 72, 18);
+    trimSlider.setTextValueSuffix(" dB");
+    addAndMakeVisible(trimSlider);
     trimSlider.setTooltip("Input staging gain. Place your hardest playing in the "
                           "meter's target zone once per rig; leave the rest to Drive.");
     trimAttachment = std::make_unique<SliderAttachment>(
@@ -427,15 +432,17 @@ void Editor::resized()
 
     outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8));
 
-    // INPUT: meter strip on the left; trim + channels beside it.
+    // INPUT: meter and trim fader side by side (one instrument), channels
+    // below.
     {
         auto r = inputArea.withTrimmedTop(header).reduced(8);
-        meter.setBounds(r.removeFromLeft(20));
-        r.removeFromLeft(8);
         channelsBox.setBounds(r.removeFromBottom(22));
         channelsCaption.setBounds(r.removeFromBottom(16));
-        r.removeFromBottom(4);
+        r.removeFromBottom(6);
         trimCaption.setBounds(r.removeFromTop(16));
+        meter.setBounds(r.removeFromLeft(juce::jmax(20, r.getWidth() / 4))
+                            .withTrimmedBottom(22)); // align with fader track
+        r.removeFromLeft(6);
         trimSlider.setBounds(r);
     }
 
