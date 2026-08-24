@@ -113,6 +113,27 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     savePresetButton.onClick = [this] { promptSavePreset(); };
     addAndMakeVisible(savePresetButton);
 
+    // Inline name entry, shown in place of the dropdown while saving.
+    presetNameEditor.setVisible(false);
+    presetNameEditor.setSelectAllWhenFocused(true);
+    presetNameEditor.onReturnKey = [this] {
+        const auto name = presetNameEditor.getText().trim();
+        if (name.isNotEmpty())
+        {
+            processor.savePreset(name);
+            refreshPresetList();
+        }
+        presetNameEditor.setVisible(false);
+        presetBox.setVisible(true);
+    };
+    auto dismiss = [this] {
+        presetNameEditor.setVisible(false);
+        presetBox.setVisible(true);
+    };
+    presetNameEditor.onEscapeKey = dismiss;
+    presetNameEditor.onFocusLost = dismiss;
+    addChildComponent(presetNameEditor);
+
     topologyLabel.setJustificationType(juce::Justification::centred);
     topologyLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(topologyLabel);
@@ -277,19 +298,12 @@ void Editor::refreshPresetList()
 
 void Editor::promptSavePreset()
 {
-    auto* window = new juce::AlertWindow("Save preset", "Name this rig:",
-                                         juce::MessageBoxIconType::NoIcon);
-    window->addTextEditor("name", processor.getCurrentPresetName());
-    window->addButton("Save", 1, juce::KeyPress{juce::KeyPress::returnKey});
-    window->addButton("Cancel", 0, juce::KeyPress{juce::KeyPress::escapeKey});
-    window->enterModalState(true, juce::ModalCallbackFunction::create([this, window](int result) {
-        const auto name = window->getTextEditorContents("name").trim();
-        if (result == 1 && name.isNotEmpty())
-        {
-            processor.savePreset(name);
-            refreshPresetList();
-        }
-    }), true);
+    // Swap the dropdown for a text field: Enter saves, Esc cancels.
+    presetNameEditor.setBounds(presetBox.getBounds());
+    presetNameEditor.setText(processor.getCurrentPresetName());
+    presetBox.setVisible(false);
+    presetNameEditor.setVisible(true);
+    presetNameEditor.grabKeyboardFocus();
 }
 
 void Editor::chooseModel()

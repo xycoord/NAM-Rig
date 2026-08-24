@@ -55,6 +55,7 @@ private:
 
     // Utility bar.
     juce::ComboBox presetBox;
+    juce::TextEditor presetNameEditor; // inline save: replaces the box briefly
     juce::TextButton savePresetButton{"Save..."};
     juce::Label topologyLabel;
     juce::TextButton settingsButton{"Audio Settings"}; // standalone only
