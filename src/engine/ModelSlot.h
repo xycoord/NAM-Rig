@@ -25,6 +25,10 @@ struct ModelInfo
     bool hasLoudness = false;
     double loudness = 0.0;
     bool slimmable = false;
+    // Sorted unique slim-ratio breakpoints (0..1) where the model's channel
+    // configuration changes; empty for non-slimmable models. The UI derives
+    // its discrete quality levels from the segments between these.
+    std::vector<double> qualityBreakpoints;
     // Non-empty when the most recent load failed; `loaded` then reflects
     // whatever model (if any) is still active from before.
     std::string error;

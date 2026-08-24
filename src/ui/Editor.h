@@ -86,8 +86,12 @@ private:
     juce::Label driveCaption;
     juce::Slider driveSlider;
     juce::Label qualityCaption;
-    juce::Slider qualitySlider;
-    std::unique_ptr<SliderAttachment> driveAttachment, qualityAttachment;
+    juce::ComboBox qualityBox; // discrete levels from the model's breakpoints
+    std::vector<double> qualityLevelValues; // slim ratio per dropdown item
+    std::vector<double> shownBreakpoints;   // cache: rebuild only on change
+    std::unique_ptr<SliderAttachment> driveAttachment;
+    void rebuildQualityLevels(const std::vector<double>& breakpoints);
+    void syncQualitySelection();
 
     // CAB / IR.
     juce::TextButton loadIrButton{"Load..."};

@@ -355,6 +355,15 @@ void ModelSlot::loadJob(const std::filesystem::path& path)
         newInfo.hasLoudness = pair->lane[0]->HasLoudness();
         newInfo.loudness = newInfo.hasLoudness ? pair->lane[0]->GetLoudness() : 0.0;
         newInfo.slimmable = pair->lane[0]->slimmable() != nullptr;
+        if (auto* sl = pair->lane[0]->slimmable())
+        {
+            auto bps = sl->GetSlimmableSizeBreakpoints();
+            std::sort(bps.begin(), bps.end());
+            bps.erase(std::unique(bps.begin(), bps.end(),
+                                  [](double a, double b) { return std::abs(a - b) < 1e-9; }),
+                      bps.end());
+            newInfo.qualityBreakpoints = std::move(bps);
+        }
     }
     catch (const std::exception& e)
     {

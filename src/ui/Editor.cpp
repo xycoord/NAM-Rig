@@ -222,13 +222,19 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     caption(driveCaption, "Drive");
 
     caption(qualityCaption, "Quality", juce::Justification::centredLeft);
-    qualitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
-    qualitySlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
-    qualitySlider.setTooltip("Trades model size for CPU on slimmable models. "
-                             "Full right = the complete model.");
-    addAndMakeVisible(qualitySlider);
-    qualityAttachment = std::make_unique<SliderAttachment>(
-        state, state::param_ids::slim.getParamID(), qualitySlider);
+    qualityBox.setTooltip("This model's discrete quality levels: lower = fewer "
+                          "network channels = less CPU.");
+    qualityBox.onChange = [this] {
+        const int idx = qualityBox.getSelectedItemIndex();
+        if (idx >= 0 && idx < static_cast<int>(qualityLevelValues.size()))
+            if (auto* param = processor.getState().getParameter(
+                    state::param_ids::slim.getParamID()))
+                param->setValueNotifyingHost(param->convertTo0to1(
+                    static_cast<float>(qualityLevelValues[static_cast<size_t>(idx)])));
+    };
+    addAndMakeVisible(qualityBox);
+    qualityCaption.setVisible(false);
+    qualityBox.setVisible(false);
 
     // --- CAB / IR ---
     loadIrButton.onClick = [this] { chooseIr(); };
@@ -286,10 +292,22 @@ void Editor::timerCallback()
     }
     clearModelButton.setEnabled(info.loaded);
 
-    qualitySlider.setEnabled(info.slimmable);
-    qualityCaption.setText(info.loaded && !info.slimmable ? "Quality (n/a for this model)"
-                                                          : "Quality",
-                           juce::dontSendNotification);
+    // Quality: a row of the model's real discrete levels; absent entirely
+    // when the model isn't slimmable (silence is health).
+    const bool showQuality = info.loaded && info.slimmable;
+    if (qualityBox.isVisible() != showQuality)
+    {
+        qualityCaption.setVisible(showQuality);
+        qualityBox.setVisible(showQuality);
+        resized();
+    }
+    if (showQuality && info.qualityBreakpoints != shownBreakpoints)
+    {
+        shownBreakpoints = info.qualityBreakpoints;
+        rebuildQualityLevels(shownBreakpoints);
+    }
+    if (showQuality)
+        syncQualitySelection();
 
     if (processor.isIrLoaded())
     {
@@ -325,6 +343,47 @@ void Editor::timerCallback()
     topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
     channelsBox.changeItemText(
         1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
+}
+
+void Editor::rebuildQualityLevels(const std::vector<double>& breakpoints)
+{
+    // Segments between breakpoints are the model's real states; represent
+    // each by its midpoint so ratio_to_channels lands inside it.
+    std::vector<double> bounds{0.0};
+    bounds.insert(bounds.end(), breakpoints.begin(), breakpoints.end());
+    bounds.push_back(1.0);
+
+    qualityLevelValues.clear();
+    qualityBox.clear(juce::dontSendNotification);
+    const int numLevels = static_cast<int>(bounds.size()) - 1;
+    for (int i = 0; i < numLevels; ++i)
+    {
+        qualityLevelValues.push_back(0.5 * (bounds[static_cast<size_t>(i)]
+                                            + bounds[static_cast<size_t>(i) + 1]));
+        const auto label = i == numLevels - 1
+                               ? juce::String{"Full"}
+                               : juce::String(i + 1) + " / " + juce::String(numLevels);
+        qualityBox.addItem(label, i + 1);
+    }
+}
+
+void Editor::syncQualitySelection()
+{
+    if (auto* raw = processor.getState().getRawParameterValue(
+            state::param_ids::slim.getParamID()))
+    {
+        const double v = raw->load();
+        int idx = 0;
+        for (size_t i = 0; i < qualityLevelValues.size(); ++i)
+        {
+            // Segment i spans [bounds_i, bounds_i+1); pick by nearest rep.
+            if (std::abs(qualityLevelValues[i] - v)
+                < std::abs(qualityLevelValues[static_cast<size_t>(idx)] - v))
+                idx = static_cast<int>(i);
+        }
+        if (qualityBox.getSelectedItemIndex() != idx)
+            qualityBox.setSelectedItemIndex(idx, juce::dontSendNotification);
+    }
 }
 
 void Editor::refreshPresetList()
@@ -432,18 +491,18 @@ void Editor::resized()
 
     outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8));
 
-    // INPUT: meter and trim fader side by side (one instrument), channels
-    // below.
+    // INPUT: slim meter fused to the trim fader, centred as one unit;
+    // channels below.
     {
         auto r = inputArea.withTrimmedTop(header).reduced(8);
         channelsBox.setBounds(r.removeFromBottom(22));
         channelsCaption.setBounds(r.removeFromBottom(16));
         r.removeFromBottom(6);
         trimCaption.setBounds(r.removeFromTop(16));
-        meter.setBounds(r.removeFromLeft(juce::jmax(20, r.getWidth() / 4))
-                            .withTrimmedBottom(22)); // align with fader track
-        r.removeFromLeft(6);
-        trimSlider.setBounds(r);
+        auto pair = r.withSizeKeepingCentre(juce::jmin(r.getWidth(), 96), r.getHeight());
+        meter.setBounds(pair.removeFromLeft(18).withTrimmedBottom(22)); // fader textbox line
+        pair.removeFromLeft(6);
+        trimSlider.setBounds(pair);
     }
 
     // AMP: model row, name, drive knob, quality.
@@ -456,9 +515,12 @@ void Editor::resized()
         r.removeFromTop(4);
         modelStatusLabel.setBounds(r.removeFromTop(22));
         normStatusLabel.setBounds(r.removeFromTop(16));
-        auto quality = r.removeFromBottom(22);
-        qualityCaption.setBounds(quality.removeFromLeft(juce::jmin(170, quality.getWidth() / 2)));
-        qualitySlider.setBounds(quality);
+        if (qualityBox.isVisible())
+        {
+            auto quality = r.removeFromBottom(24);
+            qualityCaption.setBounds(quality.removeFromLeft(70));
+            qualityBox.setBounds(quality.removeFromLeft(140));
+        }
         r.removeFromBottom(4);
         driveCaption.setBounds(r.removeFromTop(16));
         driveSlider.setBounds(r);
