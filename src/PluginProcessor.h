@@ -64,6 +64,9 @@ public:
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
     juce::String topologyDescription() const;
 
+    // Post-trim input peak since last call (linear); for the staging meter.
+    float consumeInputPeak() { return inputPeak.exchange(0.0f, std::memory_order_relaxed); }
+
     // Offset currently applied by Normalized mode (dB), for UI display.
     float getNormalizationOffsetDb() const
     {
@@ -123,7 +126,14 @@ private:
 
     // Rule: every gain is smoothed. Ramps are rendered once per chunk into
     // gainRamp so both lanes see identical values.
-    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> inputGain, outputGain, irMix;
+    // trimGain: input staging (pre-meter). driveGain: into the model.
+    // outputGain: measured-rise compensation + normalization (no user volume
+    // in Raw — raw means raw).
+    juce::SmoothedValue<float, juce::ValueSmoothingTypes::Linear> trimGain, driveGain, outputGain,
+        irMix;
+
+    // Post-trim input peak for the staging meter (audio writes, UI consumes).
+    std::atomic<float> inputPeak{0.0f};
 
     // IR stage. convPrimary serves 1ch and 2ch IRs (and the LL/LR half of a
     // quad); convQuadB is the RL/RR half, processed only in quad topology.

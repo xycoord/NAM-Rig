@@ -14,7 +14,7 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         AudioParameterFloatAttributes{}.withLabel("dB")));
 
     layout.add(std::make_unique<AudioParameterFloat>(
-        param_ids::trim, "Trim", NormalisableRange<float>{-40.0f, 40.0f, 0.1f}, 0.0f,
+        param_ids::trim, "Input Trim", NormalisableRange<float>{-24.0f, 24.0f, 0.1f}, 0.0f,
         AudioParameterFloatAttributes{}.withLabel("dB")));
 
     layout.add(std::make_unique<AudioParameterFloat>(

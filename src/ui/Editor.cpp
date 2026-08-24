@@ -19,7 +19,57 @@ const juce::Colour kText{0xffe6e8ec};
 const juce::Colour kError{0xffe38a82};
 const juce::Colour kDim{0xff85818f};
 const juce::Colour kAccent{0xff7fa8f2};
+const juce::Colour kOk{0xff77c79b};
+
+// Staging meter scale and target zone (peak dBFS, post-trim).
+constexpr float kMeterFloorDb = -48.0f;
+constexpr float kTargetLowDb = -12.0f;
+constexpr float kTargetHighDb = -3.0f;
 } // namespace
+
+// ---- StagingMeter -----------------------------------------------------------
+
+void Editor::StagingMeter::setLevel(const float peakLinear)
+{
+    const float db = peakLinear > 1.0e-5f ? 20.0f * std::log10(peakLinear) : kMeterFloorDb;
+    // Fast attack, slow decay.
+    levelDb = juce::jmax(db, levelDb - 2.5f);
+    clipped = peakLinear >= 1.0f || (clipped && levelDb > kMeterFloorDb + 6.0f);
+    repaint();
+}
+
+void Editor::StagingMeter::paint(juce::Graphics& g)
+{
+    auto r = getLocalBounds().toFloat();
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.fillRoundedRectangle(r, 3.0f);
+
+    auto yFor = [&](float db) {
+        const float t = juce::jlimit(0.0f, 1.0f, (db - kMeterFloorDb) / (0.0f - kMeterFloorDb));
+        return r.getBottom() - t * r.getHeight();
+    };
+
+    // Target zone.
+    g.setColour(kOk.withAlpha(0.25f));
+    g.fillRect(juce::Rectangle<float>{r.getX(), yFor(kTargetHighDb), r.getWidth(),
+                                      yFor(kTargetLowDb) - yFor(kTargetHighDb)});
+
+    // Level bar: green in the zone, accent below, red above.
+    const bool inZone = levelDb >= kTargetLowDb && levelDb <= kTargetHighDb;
+    const bool hot = levelDb > kTargetHighDb;
+    g.setColour(hot ? kError : (inZone ? kOk : kAccent.withAlpha(0.8f)));
+    const float top = yFor(levelDb);
+    g.fillRect(juce::Rectangle<float>{r.getX() + 2.0f, top, r.getWidth() - 4.0f,
+                                      juce::jmax(0.0f, r.getBottom() - top - 2.0f)});
+
+    if (clipped)
+    {
+        g.setColour(kError);
+        g.fillRect(getLocalBounds().toFloat().removeFromTop(4.0f));
+    }
+}
+
+// ---- Editor -----------------------------------------------------------------
 
 Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 {
@@ -32,16 +82,21 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         addAndMakeVisible(box);
         attachment = std::make_unique<ComboAttachment>(state, id.getParamID(), box);
     };
+    auto caption = [this](juce::Label& label, const char* text,
+                          juce::Justification just = juce::Justification::centred) {
+        label.setText(text, juce::dontSendNotification);
+        label.setJustificationType(just);
+        label.setColour(juce::Label::textColourId, kDim);
+        addAndMakeVisible(label);
+    };
+    auto knob = [this](juce::Slider& slider) {
+        slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 20);
+        slider.setTextValueSuffix(" dB");
+        addAndMakeVisible(slider);
+    };
 
     // --- utility bar ---
-    attachCombo(channelsBox, state::param_ids::channels, channelsAttachment);
-    channelsBox.setTooltip("Processing width. Auto follows the input bus in a DAW "
-                           "and stays mono in the standalone.");
-    channelsCaption.setText("Channels", juce::dontSendNotification);
-    channelsCaption.setJustificationType(juce::Justification::centredLeft);
-    channelsCaption.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(channelsCaption);
-
     topologyLabel.setJustificationType(juce::Justification::centred);
     topologyLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(topologyLabel);
@@ -56,21 +111,19 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     }
 
     // --- INPUT ---
-    auto setUpKnob = [this](juce::Slider& slider) {
-        slider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
-        slider.setTextBoxStyle(juce::Slider::TextBoxBelow, false, 84, 20);
-        slider.setTextValueSuffix(" dB");
-        addAndMakeVisible(slider);
-    };
-    setUpKnob(inputSlider);
-    inputSlider.setTooltip("How hard the model is driven; the output is "
-                           "compensated so loudness stays (near) constant.");
-    inputAttachment = std::make_unique<SliderAttachment>(
-        state, state::param_ids::drive.getParamID(), inputSlider);
-    driveCaption.setText("Drive", juce::dontSendNotification);
-    driveCaption.setJustificationType(juce::Justification::centred);
-    driveCaption.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(driveCaption);
+    addAndMakeVisible(meter);
+
+    knob(trimSlider);
+    trimSlider.setTooltip("Input staging gain. Place your hardest playing in the "
+                          "meter's target zone once per rig; leave the rest to Drive.");
+    trimAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::trim.getParamID(), trimSlider);
+    caption(trimCaption, "Trim");
+
+    attachCombo(channelsBox, state::param_ids::channels, channelsAttachment);
+    channelsBox.setTooltip("Processing width. Auto follows the input bus in a DAW "
+                           "and stays mono in the standalone.");
+    caption(channelsCaption, "Channels", juce::Justification::centredLeft);
 
     // --- AMP ---
     loadModelButton.onClick = [this] { chooseModel(); };
@@ -81,11 +134,15 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     modelStatusLabel.setJustificationType(juce::Justification::centred);
     addAndMakeVisible(modelStatusLabel);
 
-    qualityCaption.setText("Quality", juce::dontSendNotification);
-    qualityCaption.setJustificationType(juce::Justification::centredLeft);
-    qualityCaption.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(qualityCaption);
+    knob(driveSlider);
+    driveSlider.setTooltip("How hard the model is driven. The output is compensated "
+                           "by the model's measured response, so loudness stays "
+                           "close to constant.");
+    driveAttachment = std::make_unique<SliderAttachment>(
+        state, state::param_ids::drive.getParamID(), driveSlider);
+    caption(driveCaption, "Drive");
 
+    caption(qualityCaption, "Quality", juce::Justification::centredLeft);
     qualitySlider.setSliderStyle(juce::Slider::LinearHorizontal);
     qualitySlider.setTextBoxStyle(juce::Slider::NoTextBox, true, 0, 0);
     qualitySlider.setTooltip("Trades model size for CPU on slimmable models. "
@@ -112,13 +169,6 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
                            "one channel per side, or collapse to mono and spread.");
 
     // --- OUTPUT ---
-    setUpKnob(outputSlider);
-    outputAttachment = std::make_unique<SliderAttachment>(
-        state, state::param_ids::trim.getParamID(), outputSlider);
-    trimCaption.setText("Trim", juce::dontSendNotification);
-    trimCaption.setJustificationType(juce::Justification::centred);
-    trimCaption.setColour(juce::Label::textColourId, kDim);
-    addAndMakeVisible(trimCaption);
     attachCombo(outputModeBox, state::param_ids::outputMode, outputModeAttachment);
     outputModeBox.setTooltip("Normalized level-matches models that carry loudness "
                              "metadata; Raw leaves levels as captured.");
@@ -138,9 +188,9 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 
     setResizable(true, true);
     setResizeLimits(640, 320, 0x3fffffff, 0x3fffffff);
-    setSize(720, 340);
+    setSize(760, 360);
 
-    startTimerHz(4);
+    startTimerHz(15); // meter pace; labels ride along
     timerCallback();
 }
 
@@ -148,6 +198,8 @@ Editor::~Editor() = default;
 
 void Editor::timerCallback()
 {
+    meter.setLevel(processor.consumeInputPeak());
+
     const auto info = processor.getEngine().models().info();
 
     if (!info.error.empty())
@@ -169,7 +221,6 @@ void Editor::timerCallback()
     }
     clearModelButton.setEnabled(info.loaded);
 
-    // Quality only means something for slimmable models.
     qualitySlider.setEnabled(info.slimmable);
     qualityCaption.setText(info.loaded && !info.slimmable ? "Quality (n/a for this model)"
                                                           : "Quality",
@@ -188,8 +239,6 @@ void Editor::timerCallback()
     }
     clearIrButton.setEnabled(processor.isIrLoaded());
 
-    // The stereo-IR policy only exists for a 2ch IR under stereo processing;
-    // anywhere else it's noise — hide it.
     const bool policyRelevant = processor.isStereoIrPolicyRelevant();
     if (stereoIrBox.isVisible() != policyRelevant)
     {
@@ -197,10 +246,8 @@ void Editor::timerCallback()
         resized();
     }
 
-    topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
-
-    // Normalized-mode trim: visible only in Normalized; caption reports the
-    // applied offset, or calls out missing metadata (no silent fallback).
+    // Normalized-mode trim: caption reports the applied offset or missing
+    // metadata (no silent fallback).
     const bool normalized = outputModeBox.getSelectedItemIndex() == 1;
     if (normTargetSlider.isVisible() != normalized)
     {
@@ -227,7 +274,7 @@ void Editor::timerCallback()
         }
     }
 
-    // "Auto" should say what it resolved to.
+    topologyLabel.setText(processor.topologyDescription(), juce::dontSendNotification);
     channelsBox.changeItemText(
         1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
 }
@@ -281,23 +328,20 @@ void Editor::resized()
 {
     auto area = getLocalBounds().reduced(14);
 
-    // Utility bar along the bottom, visually separate from the chain.
     auto utility = area.removeFromBottom(26);
     if (settingsButton.isVisible())
     {
         settingsButton.setBounds(utility.removeFromRight(110));
         utility.removeFromRight(10);
     }
-    utility.removeFromLeft(10);
     topologyLabel.setBounds(utility);
     area.removeFromBottom(10);
 
-    // Signal chain: four sections, left to right.
     const int gap = 10;
-    const int knobSectionWidth = juce::jmax(150, area.getWidth() / 6);
-    auto inputArea = area.removeFromLeft(knobSectionWidth);
+    const int sideWidth = juce::jmax(160, area.getWidth() / 5);
+    auto inputArea = area.removeFromLeft(sideWidth);
     area.removeFromLeft(gap);
-    auto outputArea = area.removeFromRight(knobSectionWidth);
+    auto outputArea = area.removeFromRight(sideWidth);
     area.removeFromRight(gap);
     const int half = (area.getWidth() - gap) / 2;
     auto ampArea = area.removeFromLeft(half);
@@ -311,32 +355,36 @@ void Editor::resized()
 
     const int header = 24;
 
-    // INPUT: gain knob, chain width below it (width is decided where
-    // signal enters the chain).
+    // INPUT: meter strip on the left; trim + channels beside it.
     {
         auto r = inputArea.withTrimmedTop(header).reduced(8);
+        meter.setBounds(r.removeFromLeft(20));
+        r.removeFromLeft(8);
         channelsBox.setBounds(r.removeFromBottom(22));
         channelsCaption.setBounds(r.removeFromBottom(16));
         r.removeFromBottom(4);
-        driveCaption.setBounds(r.removeFromTop(16));
-        inputSlider.setBounds(r);
+        trimCaption.setBounds(r.removeFromTop(16));
+        trimSlider.setBounds(r);
     }
 
-    // AMP: buttons row, name, quality.
+    // AMP: model row, name, drive knob, quality.
     {
         auto r = ampArea.withTrimmedTop(header).reduced(10);
         auto buttons = r.removeFromTop(26);
         loadModelButton.setBounds(buttons.removeFromLeft(84));
         buttons.removeFromLeft(6);
         clearModelButton.setBounds(buttons.removeFromLeft(64));
-        r.removeFromTop(6);
-        modelStatusLabel.setBounds(r.removeFromTop(24));
-        auto quality = r.removeFromBottom(24);
+        r.removeFromTop(4);
+        modelStatusLabel.setBounds(r.removeFromTop(22));
+        auto quality = r.removeFromBottom(22);
         qualityCaption.setBounds(quality.removeFromLeft(juce::jmin(170, quality.getWidth() / 2)));
         qualitySlider.setBounds(quality);
+        r.removeFromBottom(4);
+        driveCaption.setBounds(r.removeFromTop(16));
+        driveSlider.setBounds(r);
     }
 
-    // CAB / IR: buttons + toggle row, name, policy (when visible).
+    // CAB / IR.
     {
         auto r = irArea.withTrimmedTop(header).reduced(10);
         auto buttons = r.removeFromTop(26);
@@ -351,19 +399,16 @@ void Editor::resized()
             stereoIrBox.setBounds(r.removeFromBottom(24).removeFromLeft(150));
     }
 
-    // OUTPUT: knob, then mode; Normalized adds its level trim.
+    // OUTPUT: mode at top; Normalized level below it.
     {
         auto r = outputArea.withTrimmedTop(header).reduced(8);
+        outputModeBox.setBounds(r.removeFromTop(24));
+        r.removeFromTop(6);
         if (normTargetSlider.isVisible())
         {
-            normTargetSlider.setBounds(r.removeFromBottom(22));
-            normCaption.setBounds(r.removeFromBottom(16));
-            r.removeFromBottom(4);
+            normCaption.setBounds(r.removeFromTop(16));
+            normTargetSlider.setBounds(r.removeFromTop(22));
         }
-        outputModeBox.setBounds(r.removeFromBottom(24));
-        r.removeFromBottom(6);
-        trimCaption.setBounds(r.removeFromTop(16));
-        outputSlider.setBounds(r);
     }
 }
 

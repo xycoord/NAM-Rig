@@ -76,12 +76,13 @@ void Processor::prepareToPlay(const double sampleRate, const int maximumExpected
     convQuadB.prepare(spec);
 
     const double rampSeconds = 0.02;
-    for (auto* s : {&inputGain, &outputGain, &irMix})
+    for (auto* s : {&trimGain, &driveGain, &outputGain, &irMix})
         s->reset(sampleRate, rampSeconds);
     const float drive0 = driveDb->load();
-    inputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(drive0));
+    trimGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(trimDb->load()));
+    driveGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(drive0));
     outputGain.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
-        trimDb->load() - engine.models().measuredRiseDb(drive0)
+        -engine.models().measuredRiseDb(drive0)
         + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setCurrentAndTargetValue(irEnabledParam->load() >= 0.5f ? 1.0f : 0.0f);
 }
@@ -119,14 +120,14 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
     const auto topo = static_cast<IrTopology>(irTopology.load(std::memory_order_relaxed));
     const bool haveIr = irLoaded.load(std::memory_order_relaxed);
 
-    // Compensated drive: subtract the model's MEASURED output rise for this
-    // drive (from the load-time sweep), not the nominal drive — compressing
-    // models raise their output less than the input push, and assuming
-    // linearity made drive audibly duck. Identity curve when no model.
+    // Gain staging: Trim places the incoming signal (metered against a
+    // target zone); Drive pushes the model with the MEASURED output rise
+    // subtracted after it; Normalized adds its offset at the output.
     const float drive = driveDb->load();
-    inputGain.setTargetValue(juce::Decibels::decibelsToGain(drive));
+    trimGain.setTargetValue(juce::Decibels::decibelsToGain(trimDb->load()));
+    driveGain.setTargetValue(juce::Decibels::decibelsToGain(drive));
     outputGain.setTargetValue(juce::Decibels::decibelsToGain(
-        trimDb->load() - engine.models().measuredRiseDb(drive)
+        -engine.models().measuredRiseDb(drive)
         + normalizationOffsetDb.load(std::memory_order_relaxed)));
     irMix.setTargetValue((irEnabledParam->load() >= 0.5f && haveIr) ? 1.0f : 0.0f);
 
@@ -154,8 +155,26 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
             std::memcpy(lane1.data(), buffer.getReadPointer(rightSource) + offset, bytes);
         }
 
-        // ---- input gain (identical ramp on every lane) ---------------------
-        applyGainRamp(inputGain, n);
+        // ---- input trim + staging meter tap --------------------------------
+        applyGainRamp(trimGain, n);
+        float chunkPeak = 0.0f;
+        for (int s = 0; s < n; ++s)
+        {
+            lane0[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
+            chunkPeak = juce::jmax(chunkPeak, std::abs(lane0[static_cast<size_t>(s)]));
+        }
+        if (lanes == 2)
+            for (int s = 0; s < n; ++s)
+            {
+                lane1[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
+                chunkPeak = juce::jmax(chunkPeak, std::abs(lane1[static_cast<size_t>(s)]));
+            }
+        // Single audio-thread writer: load/max/store is race-free.
+        inputPeak.store(juce::jmax(inputPeak.load(std::memory_order_relaxed), chunkPeak),
+                        std::memory_order_relaxed);
+
+        // ---- drive into the model ------------------------------------------
+        applyGainRamp(driveGain, n);
         for (int s = 0; s < n; ++s)
             lane0[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
         if (lanes == 2)

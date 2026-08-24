@@ -14,7 +14,8 @@ namespace param_ids
 // Gain into the model, inversely compensated at the output: changes how
 // hard the model is driven at (near-enough) constant loudness.
 inline const juce::ParameterID drive{"drive", 1};
-// Output volume.
+// Input staging gain, applied before the meter tap: place the incoming
+// signal in the meter's target zone once per rig.
 inline const juce::ParameterID trim{"trim", 1};
 // 0..1 ratio fed to nam::SlimmableModel::SetSlimmableSize; 1 = full model.
 // Shown to the user as "Quality".

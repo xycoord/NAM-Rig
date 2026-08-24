@@ -9,10 +9,10 @@ namespace namrig
 
 class Processor;
 
-// Interim editor, structured as the signal chain reads: INPUT -> AMP ->
-// CAB/IR -> OUTPUT as labeled sections, with routing and app settings in a
-// utility bar. The real theme, meters, and preset bar arrive in milestone 4;
-// this establishes the layout language they land in.
+// Interim editor, structured as the signal chain reads: INPUT (trim + staging
+// meter) -> AMP (model + drive + quality) -> CAB/IR -> OUTPUT (mode + level),
+// with routing and app settings in a utility bar. The real theme arrives in
+// milestone 4; this establishes the layout language it lands in.
 class Editor final : public juce::AudioProcessorEditor, private juce::Timer
 {
 public:
@@ -23,6 +23,19 @@ public:
     void resized() override;
 
 private:
+    // Input staging meter: post-trim peak against a target zone. Repaints
+    // only itself (rule 8).
+    class StagingMeter final : public juce::Component
+    {
+    public:
+        void setLevel(float peakLinear); // UI thread
+        void paint(juce::Graphics&) override;
+
+    private:
+        float levelDb = -60.0f;
+        bool clipped = false;
+    };
+
     void timerCallback() override;
     void chooseModel();
     void chooseIr();
@@ -33,7 +46,6 @@ private:
     using ComboAttachment = juce::AudioProcessorValueTreeState::ComboBoxAttachment;
     using ButtonAttachment = juce::AudioProcessorValueTreeState::ButtonAttachment;
 
-    // Section frames, computed in resized(), drawn in paint().
     struct Section
     {
         juce::Rectangle<int> frame;
@@ -42,24 +54,27 @@ private:
     std::array<Section, 4> sections;
 
     // Utility bar.
-    juce::ComboBox channelsBox;
-    juce::Label channelsCaption;
     juce::Label topologyLabel;
     juce::TextButton settingsButton{"Audio Settings"}; // standalone only
+
+    // INPUT: staging meter + trim + channels.
+    StagingMeter meter;
+    juce::Label trimCaption;
+    juce::Slider trimSlider;
+    juce::Label channelsCaption;
+    juce::ComboBox channelsBox;
+    std::unique_ptr<SliderAttachment> trimAttachment;
     std::unique_ptr<ComboAttachment> channelsAttachment;
 
-    // INPUT.
-    juce::Label driveCaption;
-    juce::Slider inputSlider; // Drive
-    std::unique_ptr<SliderAttachment> inputAttachment;
-
-    // AMP.
+    // AMP: model + drive + quality.
     juce::TextButton loadModelButton{"Load..."};
     juce::TextButton clearModelButton{"Clear"};
     juce::Label modelStatusLabel;
+    juce::Label driveCaption;
+    juce::Slider driveSlider;
     juce::Label qualityCaption;
     juce::Slider qualitySlider;
-    std::unique_ptr<SliderAttachment> qualityAttachment;
+    std::unique_ptr<SliderAttachment> driveAttachment, qualityAttachment;
 
     // CAB / IR.
     juce::TextButton loadIrButton{"Load..."};
@@ -70,14 +85,12 @@ private:
     std::unique_ptr<ButtonAttachment> irToggleAttachment;
     std::unique_ptr<ComboAttachment> stereoIrAttachment;
 
-    // OUTPUT.
-    juce::Label trimCaption;
-    juce::Slider outputSlider; // Trim
+    // OUTPUT: mode + normalized level.
     juce::ComboBox outputModeBox;
     juce::Label normCaption;
-    juce::Slider normTargetSlider; // Normalized mode only
-    std::unique_ptr<SliderAttachment> outputAttachment, normTargetAttachment;
+    juce::Slider normTargetSlider;
     std::unique_ptr<ComboAttachment> outputModeAttachment;
+    std::unique_ptr<SliderAttachment> normTargetAttachment;
 
     std::unique_ptr<juce::FileChooser> fileChooser;
 
