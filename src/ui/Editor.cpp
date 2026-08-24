@@ -742,19 +742,25 @@ void Editor::resized()
         // Knob row in signal order: Tight, Tone, then Drive as the hero.
         // All three share the caption line and the value-box baseline; only
         // the knob diameters differ.
-        auto place = [](juce::Rectangle<int> col, juce::Label& cap, juce::Slider& sl,
-                        int width) {
-            cap.setBounds(col.removeFromBottom(15)); // label sits under its knob
-            sl.setBounds(col.withSizeKeepingCentre(juce::jmin(width, col.getWidth()),
-                                                   col.getHeight()));
+        // Knob + label as one tight unit, centred in its cell: the knob
+        // fills what the cell allows, the label sits directly beneath it.
+        auto place = [](juce::Rectangle<int> cell, juce::Label& cap, juce::Slider& sl) {
+            const int labelH = 15;
+            const int dia =
+                juce::jmin(cell.getWidth(), cell.getHeight() - labelH) - 2;
+            const int top = cell.getY() + (cell.getHeight() - dia - labelH) / 2;
+            const auto knobArea =
+                juce::Rectangle<int>{dia, dia}.withCentre({cell.getCentreX(), top + dia / 2});
+            sl.setBounds(knobArea);
+            cap.setBounds(cell.getX(), knobArea.getBottom(), cell.getWidth(), labelH);
         };
         // Filters stacked in one column left of Drive: pre-gain shaping as
         // a unit, the hero knob beside it.
-        auto filterCol = r.removeFromLeft(juce::jmin(r.getWidth() / 3, 116));
-        auto tightArea = filterCol.removeFromTop(filterCol.getHeight() / 2);
-        place(tightArea, tightCaption, tightSlider, 78);
-        place(filterCol, toneCaption, toneSlider, 78);
-        place(r, driveCaption, driveSlider, 160);
+        auto filterCol = r.removeFromLeft(juce::jmin(r.getWidth() / 3, 110));
+        auto tightCell = filterCol.removeFromTop(filterCol.getHeight() / 2);
+        place(tightCell.reduced(0, 2), tightCaption, tightSlider);
+        place(filterCol.reduced(0, 2), toneCaption, toneSlider);
+        place(r.reduced(6, 0), driveCaption, driveSlider);
     }
 
     // CAB / IR: selector row, then toggles.

@@ -126,7 +126,7 @@ public:
         const auto centre = bounds.getCentre();
         const float angle =
             rotaryStartAngle + sliderPos * (rotaryEndAngle - rotaryStartAngle);
-        const float lineW = 3.0f; // constant weight: same pen on every knob
+        const float lineW = 5.0f; // constant weight: same pen on every knob
         const float arcRadius = radius - lineW / 2.0f;
         const bool enabled = slider.isEnabled();
 
