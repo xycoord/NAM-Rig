@@ -224,7 +224,6 @@ void Editor::resized()
 
     // Utility bar along the bottom, visually separate from the chain.
     auto utility = area.removeFromBottom(26);
-    channelsBox.setBounds(utility.removeFromLeft(100));
     if (settingsButton.isVisible())
     {
         settingsButton.setBounds(utility.removeFromRight(110));
@@ -253,8 +252,14 @@ void Editor::resized()
 
     const int header = 24;
 
-    // INPUT: one knob.
-    inputSlider.setBounds(inputArea.withTrimmedTop(header).reduced(8));
+    // INPUT: gain knob, chain width below it (width is decided where
+    // signal enters the chain).
+    {
+        auto r = inputArea.withTrimmedTop(header).reduced(8);
+        channelsBox.setBounds(r.removeFromBottom(24));
+        r.removeFromBottom(6);
+        inputSlider.setBounds(r);
+    }
 
     // AMP: buttons row, name, quality.
     {
