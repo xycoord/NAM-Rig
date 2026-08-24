@@ -643,9 +643,6 @@ void Editor::resized()
     // channels below.
     {
         auto r = inputArea.withTrimmedTop(header).reduced(8, 5);
-        channelsBox.setBounds(r.removeFromBottom(22));
-        channelsCaption.setBounds(r.removeFromBottom(16));
-        r.removeFromBottom(6);
         auto captionRow = r.removeFromTop(16);
         auto pair = r.withSizeKeepingCentre(juce::jmin(r.getWidth(), 84), r.getHeight());
         trimCaption.setBounds(captionRow.withX(pair.getX()).withWidth(pair.getWidth()));
@@ -660,11 +657,16 @@ void Editor::resized()
         modelRow.layout(r.removeFromTop(26));
         r.removeFromTop(4);
         normStatusLabel.setBounds(r.removeFromTop(16));
-        if (qualityBox.isVisible())
         {
-            auto quality = r.removeFromBottom(24);
-            qualityCaption.setBounds(quality.removeFromLeft(70));
-            qualityBox.setBounds(quality.removeFromLeft(140));
+            auto bottomRow = r.removeFromBottom(24);
+            if (qualityBox.isVisible())
+            {
+                qualityCaption.setBounds(bottomRow.removeFromLeft(52));
+                qualityBox.setBounds(bottomRow.removeFromLeft(110));
+                bottomRow.removeFromLeft(14);
+            }
+            channelsCaption.setBounds(bottomRow.removeFromLeft(62));
+            channelsBox.setBounds(bottomRow.removeFromLeft(118));
         }
         r.removeFromBottom(4);
         driveCaption.setBounds(r.removeFromTop(16));
