@@ -748,11 +748,14 @@ void Editor::resized()
             const int labelH = 15;
             const int dia =
                 juce::jmin(cell.getWidth(), cell.getHeight() - labelH) - 2;
-            const int top = cell.getY() + (cell.getHeight() - dia - labelH) / 2;
+            // Bias the unit toward the top of its cell (dead space reads
+            // worse above content than below), and tuck the label under the
+            // knob's VISUAL edge (the draw insets ~8px inside the bounds).
+            const int top = cell.getY() + (cell.getHeight() - dia - labelH) / 3;
             const auto knobArea =
                 juce::Rectangle<int>{dia, dia}.withCentre({cell.getCentreX(), top + dia / 2});
             sl.setBounds(knobArea);
-            cap.setBounds(cell.getX(), knobArea.getBottom(), cell.getWidth(), labelH);
+            cap.setBounds(cell.getX(), knobArea.getBottom() - 7, cell.getWidth(), labelH);
         };
         // Filters stacked in one column left of Drive: pre-gain shaping as
         // a unit, the hero knob beside it.
