@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <thread>
 #include <vector>
 
@@ -13,6 +14,7 @@
 #include "engine/Engine.h"
 #include "engine/ModelSlot.h"
 #include "engine/ResamplingNam.h"
+#include "state/PathResolve.h"
 
 namespace
 {
@@ -301,4 +303,54 @@ TEST_CASE("measured gain-rise curve is sane for a real model")
     // any large margin, and compression means it usually rises less.
     CHECK(hi <= 21.0f);
     CHECK(lo >= -21.0f);
+}
+
+
+TEST_CASE("stored paths survive a moved library")
+{
+    namespace fs = std::filesystem;
+    const fs::path base = fs::temp_directory_path() / "namrig_pathtest";
+    fs::remove_all(base);
+    const fs::path rootA = base / "libA" / "Models";
+    const fs::path rootB = base / "libB" / "Models";
+    fs::create_directories(rootA / "clean");
+    fs::create_directories(rootB / "clean");
+
+    const fs::path fileA = rootA / "clean" / "amp.nam";
+    {
+        std::ofstream{fileA} << "x";
+    }
+
+    const auto stored = namrig::state::makeStoredPath(fileA, rootA);
+    CHECK(stored.relative == (fs::path{"clean"} / "amp.nam").string());
+    CHECK(stored.filename == "amp.nam");
+
+    // 1. Same layout under a moved root -> relative resolution.
+    {
+        std::ofstream{rootB / "clean" / "amp.nam"} << "x";
+    }
+    bool usedSearch = true;
+    auto r = namrig::state::resolveStoredPath(stored, rootB, &usedSearch);
+    REQUIRE(r.has_value());
+    CHECK(*r == rootB / "clean" / "amp.nam");
+    CHECK_FALSE(usedSearch);
+
+    // 2. Reorganized: same filename elsewhere under the root -> search.
+    const fs::path rootC = base / "libC" / "Models";
+    fs::create_directories(rootC / "moved" / "deeper");
+    {
+        std::ofstream{rootC / "moved" / "deeper" / "amp.nam"} << "x";
+    }
+    fs::remove(fileA); // absolute fallback must not win
+    r = namrig::state::resolveStoredPath(stored, rootC, &usedSearch);
+    REQUIRE(r.has_value());
+    CHECK(usedSearch);
+    CHECK(r->filename() == "amp.nam");
+
+    // 3. Nowhere -> nullopt.
+    const fs::path rootD = base / "libD";
+    fs::create_directories(rootD);
+    CHECK_FALSE(namrig::state::resolveStoredPath(stored, rootD).has_value());
+
+    fs::remove_all(base);
 }

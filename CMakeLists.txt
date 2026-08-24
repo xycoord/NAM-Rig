@@ -44,6 +44,7 @@ target_compile_definitions(adt PUBLIC DSP_SAMPLE_FLOAT)
 
 # ---- Engine (no JUCE anywhere) ----------------------------------------------
 add_library(namrig_engine STATIC
+    src/state/PathResolve.cpp
     src/engine/Architectures.cpp
     src/engine/ResamplingNam.cpp
     src/engine/ModelSlot.cpp
@@ -72,6 +73,7 @@ juce_add_plugin(NamRig
 target_sources(NamRig PRIVATE
     src/PluginProcessor.cpp
     src/standalone/StandaloneApp.cpp
+    src/state/Library.cpp
     src/state/Parameters.cpp
     src/ui/Editor.cpp)
 

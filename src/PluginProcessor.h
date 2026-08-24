@@ -5,6 +5,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include "engine/Engine.h"
+#include "state/Library.h"
 #include "state/Parameters.h"
 
 namespace namrig
@@ -61,6 +62,14 @@ public:
     juce::String getIrPath() const { return irPath; }
     bool isIrLoaded() const { return irLoaded.load(std::memory_order_relaxed); }
 
+    // Presets (message thread). A preset is THE SOUND: model, IR, IR on/off,
+    // Drive, Quality, stereo-IR policy (+ reserved per-model trim). Trim and
+    // Channels are machine/context state and are never touched by presets.
+    state::Library& getLibrary() { return library; }
+    bool savePreset(const juce::String& name);
+    bool loadPreset(const juce::String& name); // false = file/parse failure
+    juce::String getCurrentPresetName() const { return currentPresetName; }
+
     // "stereo in -> 2x amp -> quad IR -> stereo out" for the UI status line.
     juce::String topologyDescription() const;
 
@@ -107,6 +116,10 @@ private:
 
     juce::AudioProcessorValueTreeState state;
     engine::Engine engine;
+    state::Library library;
+    juce::String currentPresetName;
+
+    void setParamFromPreset(const juce::ParameterID& id, float naturalValue);
 
     // Raw parameter pointers (atomic reads on the audio thread).
     std::atomic<float>* driveDb = nullptr;

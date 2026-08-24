@@ -54,8 +54,12 @@ private:
     std::array<Section, 3> sections;
 
     // Utility bar.
+    juce::ComboBox presetBox;
+    juce::TextButton savePresetButton{"Save..."};
     juce::Label topologyLabel;
     juce::TextButton settingsButton{"Audio Settings"}; // standalone only
+    void refreshPresetList();
+    void promptSavePreset();
 
     // INPUT: staging meter + trim + channels.
     StagingMeter meter;

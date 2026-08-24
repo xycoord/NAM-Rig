@@ -101,6 +101,18 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     };
 
     // --- utility bar ---
+    presetBox.setTextWhenNothingSelected("Presets");
+    presetBox.onChange = [this] {
+        const auto name = presetBox.getText();
+        if (name.isNotEmpty())
+            processor.loadPreset(name);
+    };
+    addAndMakeVisible(presetBox);
+    refreshPresetList();
+
+    savePresetButton.onClick = [this] { promptSavePreset(); };
+    addAndMakeVisible(savePresetButton);
+
     topologyLabel.setJustificationType(juce::Justification::centred);
     topologyLabel.setColour(juce::Label::textColourId, kDim);
     addAndMakeVisible(topologyLabel);
@@ -252,6 +264,34 @@ void Editor::timerCallback()
         1, processor.getResolvedLanes() == 2 ? "Auto (stereo)" : "Auto (mono)");
 }
 
+void Editor::refreshPresetList()
+{
+    presetBox.clear(juce::dontSendNotification);
+    int id = 1;
+    for (const auto& name : processor.getLibrary().listPresets())
+        presetBox.addItem(name, id++);
+    const auto current = processor.getCurrentPresetName();
+    if (current.isNotEmpty())
+        presetBox.setText(current, juce::dontSendNotification);
+}
+
+void Editor::promptSavePreset()
+{
+    auto* window = new juce::AlertWindow("Save preset", "Name this rig:",
+                                         juce::MessageBoxIconType::NoIcon);
+    window->addTextEditor("name", processor.getCurrentPresetName());
+    window->addButton("Save", 1, juce::KeyPress{juce::KeyPress::returnKey});
+    window->addButton("Cancel", 0, juce::KeyPress{juce::KeyPress::escapeKey});
+    window->enterModalState(true, juce::ModalCallbackFunction::create([this, window](int result) {
+        const auto name = window->getTextEditorContents("name").trim();
+        if (result == 1 && name.isNotEmpty())
+        {
+            processor.savePreset(name);
+            refreshPresetList();
+        }
+    }), true);
+}
+
 void Editor::chooseModel()
 {
     fileChooser = std::make_unique<juce::FileChooser>("Load NAM model", juce::File{}, "*.nam");
@@ -302,6 +342,10 @@ void Editor::resized()
     auto area = getLocalBounds().reduced(14);
 
     auto utility = area.removeFromBottom(26);
+    presetBox.setBounds(utility.removeFromLeft(180));
+    utility.removeFromLeft(6);
+    savePresetButton.setBounds(utility.removeFromLeft(70));
+    utility.removeFromLeft(10);
     if (settingsButton.isVisible())
     {
         settingsButton.setBounds(utility.removeFromRight(110));

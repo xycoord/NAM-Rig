@@ -388,6 +388,8 @@ void Processor::loadIr(const juce::File& file)
     if (reader == nullptr)
         return;
 
+    library.seedIrRootFrom(file);
+
     const int numCh = static_cast<int>(reader->numChannels);
     const auto numSamples = static_cast<int>(reader->lengthInSamples);
     juce::AudioBuffer<float> all(numCh, numSamples);
@@ -446,6 +448,88 @@ void Processor::clearIr()
     resolveTopology();
 }
 
+void Processor::setParamFromPreset(const juce::ParameterID& id, const float naturalValue)
+{
+    if (auto* param = state.getParameter(id.getParamID()))
+        param->setValueNotifyingHost(
+            param->convertTo0to1(naturalValue));
+}
+
+bool Processor::savePreset(const juce::String& name)
+{
+    const auto info = engine.models().info();
+
+    auto* obj = new juce::DynamicObject();
+    obj->setProperty("version", 1);
+    obj->setProperty("model", info.loaded
+                                  ? state::Library::toVar(library.storeModelPath(
+                                        juce::File{juce::String{info.path}}))
+                                  : juce::var{});
+    obj->setProperty("ir", irPath.isNotEmpty()
+                               ? state::Library::toVar(library.storeIrPath(juce::File{irPath}))
+                               : juce::var{});
+
+    auto* params = new juce::DynamicObject();
+    params->setProperty("drive", driveDb->load());
+    params->setProperty("quality", slimParam->load());
+    params->setProperty("ir_enabled", irEnabledParam->load() >= 0.5f);
+    params->setProperty("stereo_ir_mode", static_cast<int>(stereoIrModeParam->load()));
+    // Reserved: per-model output trim for wrong-metadata models. No UI yet.
+    params->setProperty("model_trim", 0.0);
+    obj->setProperty("params", juce::var{params});
+
+    const auto file = library.presetFile(name);
+    file.getParentDirectory().createDirectory();
+    if (!file.replaceWithText(juce::JSON::toString(juce::var{obj}, false)))
+        return false;
+    currentPresetName = name;
+    return true;
+}
+
+bool Processor::loadPreset(const juce::String& name)
+{
+    const auto file = library.presetFile(name);
+    const auto parsed = juce::JSON::parse(file.loadFileAsString());
+    auto* obj = parsed.getDynamicObject();
+    if (obj == nullptr)
+        return false;
+
+    if (obj->hasProperty("model") && obj->getProperty("model").getDynamicObject() != nullptr)
+    {
+        const auto resolved =
+            library.resolveModelPath(state::Library::fromVar(obj->getProperty("model")));
+        if (resolved != juce::File{})
+            engine.models().requestLoad(resolved.getFullPathName().toStdString());
+        // Unresolvable model: keep whatever is playing; the engine's error
+        // surface stays quiet, but the model name won't change — visible.
+    }
+    else
+        engine.models().requestClear();
+
+    if (obj->hasProperty("ir") && obj->getProperty("ir").getDynamicObject() != nullptr)
+    {
+        const auto resolved =
+            library.resolveIrPath(state::Library::fromVar(obj->getProperty("ir")));
+        if (resolved != juce::File{})
+            loadIr(resolved);
+    }
+    else
+        clearIr();
+
+    if (auto* params = obj->getProperty("params").getDynamicObject())
+    {
+        setParamFromPreset(state::param_ids::drive, params->getProperty("drive"));
+        setParamFromPreset(state::param_ids::slim, params->getProperty("quality"));
+        setParamFromPreset(state::param_ids::irEnabled,
+                           static_cast<bool>(params->getProperty("ir_enabled")) ? 1.0f : 0.0f);
+        setParamFromPreset(state::param_ids::stereoIrMode,
+                           static_cast<int>(params->getProperty("stereo_ir_mode")));
+    }
+
+    currentPresetName = name;
+    return true;
+}
+
 juce::AudioProcessorEditor* Processor::createEditor()
 {
     return new Editor(*this);
@@ -455,9 +539,22 @@ void Processor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto tree = state.copyState();
     tree.setProperty("stateVersion", state::kStateVersion, nullptr);
-    // Interim path recall (portable path storage is milestone 3).
-    tree.setProperty("modelPath", juce::String(engine.models().info().path), nullptr);
-    tree.setProperty("irPath", irPath, nullptr);
+    const auto info = engine.models().info();
+    if (info.loaded)
+    {
+        const auto sp = library.storeModelPath(juce::File{juce::String{info.path}});
+        tree.setProperty("modelPath", juce::String{sp.absolute}, nullptr);
+        tree.setProperty("modelRel", juce::String{sp.relative}, nullptr);
+        tree.setProperty("modelFile", juce::String{sp.filename}, nullptr);
+    }
+    if (irPath.isNotEmpty())
+    {
+        const auto sp = library.storeIrPath(juce::File{irPath});
+        tree.setProperty("irPath", juce::String{sp.absolute}, nullptr);
+        tree.setProperty("irRel", juce::String{sp.relative}, nullptr);
+        tree.setProperty("irFile", juce::String{sp.filename}, nullptr);
+    }
+    tree.setProperty("presetName", currentPresetName, nullptr);
     if (auto xml = tree.createXml())
         copyXmlToBinary(*xml, destData);
 }
@@ -470,14 +567,29 @@ void Processor::setStateInformation(const void* data, int sizeInBytes)
         {
             auto tree = juce::ValueTree::fromXml(*xml);
 
-            const juce::String modelPath = tree.getProperty("modelPath", {});
-            if (modelPath.isNotEmpty())
-                engine.models().requestLoad(modelPath.toStdString());
+            state::StoredPath model;
+            model.absolute = tree.getProperty("modelPath", juce::String{}).toString().toStdString();
+            model.relative = tree.getProperty("modelRel", juce::String{}).toString().toStdString();
+            model.filename = tree.getProperty("modelFile", juce::String{}).toString().toStdString();
+            if (!model.empty())
+            {
+                const auto resolved = library.resolveModelPath(model);
+                if (resolved != juce::File{})
+                    engine.models().requestLoad(resolved.getFullPathName().toStdString());
+            }
 
-            const juce::String savedIrPath = tree.getProperty("irPath", {});
-            if (savedIrPath.isNotEmpty() && juce::File(savedIrPath).existsAsFile())
-                loadIr(juce::File(savedIrPath));
+            state::StoredPath ir;
+            ir.absolute = tree.getProperty("irPath", juce::String{}).toString().toStdString();
+            ir.relative = tree.getProperty("irRel", juce::String{}).toString().toStdString();
+            ir.filename = tree.getProperty("irFile", juce::String{}).toString().toStdString();
+            if (!ir.empty())
+            {
+                const auto resolved = library.resolveIrPath(ir);
+                if (resolved != juce::File{})
+                    loadIr(resolved);
+            }
 
+            currentPresetName = tree.getProperty("presetName", juce::String{}).toString();
             state.replaceState(tree);
         }
     }
