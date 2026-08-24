@@ -96,17 +96,72 @@ private:
     std::unique_ptr<SliderAttachment> trimAttachment;
     std::unique_ptr<ComboAttachment> channelsAttachment;
 
+    // Small square button with a path-drawn icon (text glyphs sit on the
+    // font baseline and never center properly at this size).
+    class IconButton final : public juce::Button
+    {
+    public:
+        enum class Kind { prev, next, clear };
+        explicit IconButton(Kind k) : juce::Button({}), kind(k) {}
+
+        void paintButton(juce::Graphics& g, bool highlighted, bool down) override
+        {
+            auto r = getLocalBounds().toFloat().reduced(0.5f);
+            auto fill = theme::colours::raised;
+            if (down)
+                fill = theme::colours::accentDim;
+            else if (highlighted && isEnabled())
+                fill = fill.brighter(0.08f);
+            g.setColour(fill);
+            g.fillRoundedRectangle(r, 4.0f);
+            g.setColour(theme::colours::outline);
+            g.drawRoundedRectangle(r, 4.0f, 1.0f);
+
+            const auto c = r.getCentre();
+            const float s = 3.5f;
+            juce::Path p;
+            switch (kind)
+            {
+                case Kind::prev:
+                    p.startNewSubPath(c.x + s * 0.6f, c.y - s);
+                    p.lineTo(c.x - s * 0.6f, c.y);
+                    p.lineTo(c.x + s * 0.6f, c.y + s);
+                    break;
+                case Kind::next:
+                    p.startNewSubPath(c.x - s * 0.6f, c.y - s);
+                    p.lineTo(c.x + s * 0.6f, c.y);
+                    p.lineTo(c.x - s * 0.6f, c.y + s);
+                    break;
+                case Kind::clear:
+                    p.startNewSubPath(c.x - s, c.y - s);
+                    p.lineTo(c.x + s, c.y + s);
+                    p.startNewSubPath(c.x + s, c.y - s);
+                    p.lineTo(c.x - s, c.y + s);
+                    break;
+            }
+            g.setColour(isEnabled() ? theme::colours::textPrimary
+                                    : theme::colours::textSecondary.withAlpha(0.5f));
+            g.strokePath(p, juce::PathStrokeType{1.6f, juce::PathStrokeType::mitered,
+                                                 juce::PathStrokeType::rounded});
+        }
+
+    private:
+        Kind kind;
+    };
+
     // Selector row: prev / name-as-button / next / clear. The name opens
     // the picker; arrows step through the current folder while playing.
     struct SelectorRow
     {
-        juce::TextButton prev{juce::CharPointer_UTF8{"\xe2\x80\xb9"}},
-            next{juce::CharPointer_UTF8{"\xe2\x80\xba"}},
-            name, clear{juce::CharPointer_UTF8{"\xe2\x9c\x95"}};
+        IconButton prev{IconButton::Kind::prev}, next{IconButton::Kind::next},
+            clear{IconButton::Kind::clear};
+        juce::TextButton name;
         void addTo(juce::Component& parent)
         {
-            for (auto* b : {&prev, &name, &next, &clear})
-                parent.addAndMakeVisible(*b);
+            parent.addAndMakeVisible(prev);
+            parent.addAndMakeVisible(name);
+            parent.addAndMakeVisible(next);
+            parent.addAndMakeVisible(clear);
         }
         void layout(juce::Rectangle<int> row)
         {
