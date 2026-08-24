@@ -139,9 +139,14 @@ public:
 
         if (enabled)
         {
+            // The value arc shows how much the control is DOING. Controls
+            // whose effect grows downward (low-pass filters: open = off)
+            // set the "reverseFill" property and fill from the top end.
+            const bool reverse = slider.getProperties()["reverseFill"];
             juce::Path value;
             value.addCentredArc(centre.x, centre.y, arcRadius, arcRadius, 0.0f,
-                                rotaryStartAngle, angle, true);
+                                reverse ? angle : rotaryStartAngle,
+                                reverse ? rotaryEndAngle : angle, true);
             g.setColour(accent);
             g.strokePath(value, juce::PathStrokeType{lineW, juce::PathStrokeType::curved,
                                                      juce::PathStrokeType::rounded});

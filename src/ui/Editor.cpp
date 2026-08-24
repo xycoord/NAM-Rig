@@ -337,6 +337,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     caption(tightCaption, "HPF");
 
     knob(toneSlider, 20000.0);
+    toneSlider.getProperties().set("reverseFill", true);
     toneSlider.setTextValueSuffix({});
     toneSlider.setTooltip("Pre-gain low-pass, 6 dB/oct — like rolling off the "
                           "guitar's tone pot. Fully open = out of the path.");
@@ -421,6 +422,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     caption(verbHpfCaption, "HPF");
 
     knob(verbLpfSlider, 20000.0);
+    verbLpfSlider.getProperties().set("reverseFill", true);
     verbLpfSlider.setTextValueSuffix({});
     verbLpfSlider.setTooltip("Filters highs out of the reverb send (~10 kHz for the "
                              "classic dark chamber): no fizzy tails.");
