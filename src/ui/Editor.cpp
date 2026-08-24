@@ -114,7 +114,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
                              "metadata; Raw leaves levels as captured.");
 
     setResizable(true, true);
-    setResizeLimits(560, 300, 0x3fffffff, 0x3fffffff);
+    setResizeLimits(640, 320, 0x3fffffff, 0x3fffffff);
     setSize(720, 340);
 
     startTimerHz(4);
@@ -243,7 +243,7 @@ void Editor::resized()
 
     // Signal chain: four sections, left to right.
     const int gap = 10;
-    const int knobSectionWidth = juce::jmax(120, area.getWidth() / 6);
+    const int knobSectionWidth = juce::jmax(150, area.getWidth() / 6);
     auto inputArea = area.removeFromLeft(knobSectionWidth);
     area.removeFromLeft(gap);
     auto outputArea = area.removeFromRight(knobSectionWidth);
@@ -264,10 +264,9 @@ void Editor::resized()
     // signal enters the chain).
     {
         auto r = inputArea.withTrimmedTop(header).reduced(8);
-        auto channelsRow = r.removeFromBottom(24);
-        channelsCaption.setBounds(channelsRow.removeFromLeft(64));
-        channelsBox.setBounds(channelsRow);
-        r.removeFromBottom(6);
+        channelsBox.setBounds(r.removeFromBottom(22));
+        channelsCaption.setBounds(r.removeFromBottom(16));
+        r.removeFromBottom(4);
         inputSlider.setBounds(r);
     }
 
