@@ -207,10 +207,16 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 
     // --- utility bar ---
     presetBox.setTextWhenNothingSelected("Presets");
+    // Nothing stays formally "selected": the loaded name shows as
+    // placeholder, so re-picking the same preset fires again (reload =
+    // revert tweaks).
     presetBox.onChange = [this] {
+        if (presetBox.getSelectedItemIndex() < 0)
+            return;
         const auto name = presetBox.getText();
-        if (name.isNotEmpty())
-            processor.loadPreset(name);
+        presetBox.setSelectedId(0, juce::dontSendNotification);
+        if (name.isNotEmpty() && processor.loadPreset(name))
+            presetBox.setTextWhenNothingSelected(name);
     };
     addAndMakeVisible(presetBox);
     refreshPresetList();
@@ -240,9 +246,6 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
         deletePresetButton.setButtonText("Delete");
         processor.deletePreset(name);
         refreshPresetList();
-        presetBox.setTextWhenNothingSelected("Presets");
-        presetBox.setSelectedId(0, juce::dontSendNotification);
-        presetBox.setText({}, juce::dontSendNotification);
     };
     addAndMakeVisible(deletePresetButton);
 
@@ -524,9 +527,10 @@ void Editor::refreshPresetList()
     int id = 1;
     for (const auto& name : processor.getLibrary().listPresets())
         presetBox.addItem(name, id++);
+    presetBox.setSelectedId(0, juce::dontSendNotification);
     const auto current = processor.getCurrentPresetName();
-    if (current.isNotEmpty())
-        presetBox.setText(current, juce::dontSendNotification);
+    presetBox.setTextWhenNothingSelected(current.isNotEmpty() ? current
+                                                              : juce::String{"Presets"});
 }
 
 void Editor::promptSavePreset()
