@@ -260,10 +260,14 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
 
         // ---- output gain + write out ---------------------------------------
         applyGainRamp(outputGain, n);
+        float outPeak = 0.0f;
         if (wetLanes == 1)
         {
             for (int s = 0; s < n; ++s)
+            {
                 lane0[static_cast<size_t>(s)] *= gainRamp[static_cast<size_t>(s)];
+                outPeak = juce::jmax(outPeak, std::abs(lane0[static_cast<size_t>(s)]));
+            }
             for (int c = 0; c < numOut; ++c)
                 std::memcpy(buffer.getWritePointer(c) + offset, lane0.data(), bytes);
         }
@@ -274,6 +278,8 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
                 const float g = gainRamp[static_cast<size_t>(s)];
                 lane0[static_cast<size_t>(s)] *= g;
                 lane1[static_cast<size_t>(s)] *= g;
+                outPeak = juce::jmax(outPeak, juce::jmax(std::abs(lane0[static_cast<size_t>(s)]),
+                                                         std::abs(lane1[static_cast<size_t>(s)])));
             }
             if (numOut >= 2)
             {
@@ -287,6 +293,8 @@ void Processor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiBuffer&
                         0.5f * (lane0[static_cast<size_t>(s)] + lane1[static_cast<size_t>(s)]);
             }
         }
+        outputPeak.store(juce::jmax(outputPeak.load(std::memory_order_relaxed), outPeak),
+                         std::memory_order_relaxed);
     }
 }
 

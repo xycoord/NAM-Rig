@@ -53,14 +53,17 @@ void Editor::StagingMeter::paint(juce::Graphics& g)
         return r.getBottom() - t * r.getHeight();
     };
 
-    // Target zone.
-    g.setColour(kOk.withAlpha(0.25f));
-    g.fillRect(juce::Rectangle<float>{r.getX(), yFor(kTargetHighDb), r.getWidth(),
-                                      yFor(kTargetLowDb) - yFor(kTargetHighDb)});
+    if (showZone)
+    {
+        g.setColour(kOk.withAlpha(0.25f));
+        g.fillRect(juce::Rectangle<float>{r.getX(), yFor(kTargetHighDb), r.getWidth(),
+                                          yFor(kTargetLowDb) - yFor(kTargetHighDb)});
+    }
 
-    // Level bar: green in the zone, accent below, red above.
-    const bool inZone = levelDb >= kTargetLowDb && levelDb <= kTargetHighDb;
-    const bool hot = levelDb > kTargetHighDb;
+    // Level bar: green in the zone, accent below, red above (zone meters);
+    // plain accent with red-above-clip for the output strip.
+    const bool inZone = showZone && levelDb >= kTargetLowDb && levelDb <= kTargetHighDb;
+    const bool hot = showZone ? levelDb > kTargetHighDb : levelDb > -1.0f;
     g.setColour(hot ? kError : (inZone ? kOk : kAccent.withAlpha(0.8f)));
     const float top = yFor(levelDb);
     g.fillRect(juce::Rectangle<float>{r.getX() + 2.0f, top, r.getWidth() - 4.0f,
@@ -177,6 +180,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
 
     // --- INPUT ---
     addAndMakeVisible(meter);
+    addAndMakeVisible(outputMeter);
 
     knob(trimSlider);
     trimSlider.setTooltip("Input staging gain. Place your hardest playing in the "
@@ -250,6 +254,7 @@ Editor::~Editor() = default;
 void Editor::timerCallback()
 {
     meter.setLevel(processor.consumeInputPeak());
+    outputMeter.setLevel(processor.consumeOutputPeak());
 
     const auto info = processor.getEngine().models().info();
 
@@ -399,6 +404,8 @@ void Editor::resized()
     area.removeFromBottom(10);
 
     const int gap = 10;
+    auto outArea = area.removeFromRight(44);
+    area.removeFromRight(gap);
     const int sideWidth = juce::jmax(160, area.getWidth() / 5);
     auto inputArea = area.removeFromLeft(sideWidth);
     area.removeFromLeft(gap);
@@ -410,6 +417,9 @@ void Editor::resized()
     sections[0] = {inputArea, "INPUT"};
     sections[1] = {ampArea, "AMP"};
     sections[2] = {irArea, "CAB / IR"};
+    sections[3] = {outArea, "OUT"};
+
+    outputMeter.setBounds(outArea.withTrimmedTop(header).reduced(8));
 
     const int header = 24;
 

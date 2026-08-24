@@ -76,6 +76,8 @@ public:
 
     // Post-trim input peak since last call (linear); for the staging meter.
     float consumeInputPeak() { return inputPeak.exchange(0.0f, std::memory_order_relaxed); }
+    // Output peak since last call (linear).
+    float consumeOutputPeak() { return outputPeak.exchange(0.0f, std::memory_order_relaxed); }
 
     // Offset currently applied by Normalized mode (dB), for UI display.
     float getNormalizationOffsetDb() const
@@ -146,6 +148,8 @@ private:
 
     // Post-trim input peak for the staging meter (audio writes, UI consumes).
     std::atomic<float> inputPeak{0.0f};
+    // Post-everything output peak (what leaves the plugin).
+    std::atomic<float> outputPeak{0.0f};
 
     // IR stage. convPrimary serves 1ch and 2ch IRs (and the LL/LR half of a
     // quad); convQuadB is the RL/RR half, processed only in quad topology.

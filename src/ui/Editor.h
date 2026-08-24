@@ -28,10 +28,12 @@ private:
     class StagingMeter final : public juce::Component
     {
     public:
+        explicit StagingMeter(bool withTargetZone = true) : showZone(withTargetZone) {}
         void setLevel(float peakLinear); // UI thread
         void paint(juce::Graphics&) override;
 
     private:
+        bool showZone;
         float levelDb = -60.0f;
         bool clipped = false;
     };
@@ -51,7 +53,7 @@ private:
         juce::Rectangle<int> frame;
         const char* title = "";
     };
-    std::array<Section, 3> sections;
+    std::array<Section, 4> sections;
 
     // Utility bar.
     juce::ComboBox presetBox;
@@ -64,8 +66,9 @@ private:
     void refreshPresetList();
     void promptSavePreset();
 
-    // INPUT: staging meter + trim + channels.
+    // INPUT: staging meter + trim + channels. OUT: output peak strip.
     StagingMeter meter;
+    StagingMeter outputMeter{false};
     juce::Label trimCaption;
     juce::Slider trimSlider;
     juce::Label channelsCaption;
