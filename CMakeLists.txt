@@ -57,6 +57,13 @@ target_link_libraries(namrig_engine PUBLIC nam_core adt)
 set_target_properties(nam_core adt namrig_engine
     PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
+# Embedded UI font (Barlow, OFL) — identical rendering on every platform.
+juce_add_binary_data(NamRigAssets SOURCES
+    assets/fonts/Barlow-Regular.ttf
+    assets/fonts/Barlow-Medium.ttf
+    assets/fonts/Barlow-SemiBold.ttf)
+set_target_properties(NamRigAssets PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
 juce_add_plugin(NamRig
     COMPANY_NAME "xycoord"
     PRODUCT_NAME "NAM Rig"
@@ -103,6 +110,7 @@ target_link_libraries(NamRig
         namrig_engine
         nam_core
         adt
+        NamRigAssets
     PRIVATE
         juce::juce_audio_utils
         juce::juce_dsp

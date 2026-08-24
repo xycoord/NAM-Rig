@@ -2,6 +2,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include "BinaryData.h"
+
 namespace namrig::theme
 {
 
@@ -36,6 +38,8 @@ public:
     LookAndFeel()
     {
         using namespace colours;
+
+        setDefaultSansSerifTypeface(regular());
 
         setColour(juce::ResizableWindow::backgroundColourId, background);
         setColour(juce::TooltipWindow::backgroundColourId, raised);
@@ -84,6 +88,33 @@ public:
     }
 
     // Flat knob: thin track arc, accent value arc, dot thumb. No bevels.
+    // Embedded Barlow: consistent rendering on every platform, no system
+    // font dependence. Bold requests map to SemiBold; Medium is available
+    // for emphasis in between.
+    static juce::Typeface::Ptr regular()
+    {
+        static juce::Typeface::Ptr t = juce::Typeface::createSystemTypefaceFor(
+            BinaryData::BarlowRegular_ttf, BinaryData::BarlowRegular_ttfSize);
+        return t;
+    }
+    static juce::Typeface::Ptr medium()
+    {
+        static juce::Typeface::Ptr t = juce::Typeface::createSystemTypefaceFor(
+            BinaryData::BarlowMedium_ttf, BinaryData::BarlowMedium_ttfSize);
+        return t;
+    }
+    static juce::Typeface::Ptr semiBold()
+    {
+        static juce::Typeface::Ptr t = juce::Typeface::createSystemTypefaceFor(
+            BinaryData::BarlowSemiBold_ttf, BinaryData::BarlowSemiBold_ttfSize);
+        return t;
+    }
+
+    juce::Typeface::Ptr getTypefaceForFont(const juce::Font& font) override
+    {
+        return font.isBold() ? semiBold() : regular();
+    }
+
     void drawRotarySlider(juce::Graphics& g, int x, int y, int width, int height,
                           float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
                           juce::Slider& slider) override
