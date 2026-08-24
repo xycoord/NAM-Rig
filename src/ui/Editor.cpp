@@ -584,8 +584,7 @@ void Editor::resized()
     const int gap = 10;
     auto outArea = area.removeFromRight(44);
     area.removeFromRight(gap);
-    const int sideWidth = juce::jmax(160, area.getWidth() / 5);
-    auto inputArea = area.removeFromLeft(sideWidth);
+    auto inputArea = area.removeFromLeft(118); // fixed: a channel strip, not a panel that grows
     area.removeFromLeft(gap);
     const int half = (area.getWidth() - gap) / 2;
     auto ampArea = area.removeFromLeft(half);
@@ -608,8 +607,9 @@ void Editor::resized()
         channelsBox.setBounds(r.removeFromBottom(22));
         channelsCaption.setBounds(r.removeFromBottom(16));
         r.removeFromBottom(6);
-        trimCaption.setBounds(r.removeFromTop(16));
-        auto pair = r.withSizeKeepingCentre(juce::jmin(r.getWidth(), 96), r.getHeight());
+        auto captionRow = r.removeFromTop(16);
+        auto pair = r.withSizeKeepingCentre(juce::jmin(r.getWidth(), 84), r.getHeight());
+        trimCaption.setBounds(captionRow.withX(pair.getX()).withWidth(pair.getWidth()));
         meter.setBounds(pair.removeFromLeft(18).withTrimmedBottom(22)); // fader textbox line
         pair.removeFromLeft(6);
         trimSlider.setBounds(pair);
