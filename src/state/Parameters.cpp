@@ -1,11 +1,32 @@
 #include "Parameters.h"
 
+#include <cmath>
+
 namespace namrig::state
 {
 
 juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
 {
     using namespace juce;
+
+    // Frequencies read to 2 significant figures: "85 Hz", "3.4 kHz", "20 kHz".
+    auto hzToText = [](float v, int) {
+        double value = static_cast<double>(v);
+        const double mag = std::pow(10.0, std::floor(std::log10(value)) - 1.0);
+        value = std::round(value / mag) * mag;
+        if (value >= 1000.0)
+        {
+            const double k = value / 1000.0;
+            return (k >= 10.0 ? String{static_cast<int>(std::lround(k))} : String{k, 1})
+                   + " kHz";
+        }
+        return String{static_cast<int>(std::lround(value))} + " Hz";
+    };
+    auto textToHz = [](const String& t) {
+        const auto trimmed = t.trim().toLowerCase();
+        const float num = trimmed.getFloatValue();
+        return trimmed.contains("k") ? num * 1000.0f : num;
+    };
 
     AudioProcessorValueTreeState::ParameterLayout layout;
 
@@ -27,14 +48,18 @@ juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
         r.setSkewForCentre(50.0f);
         layout.add(std::make_unique<AudioParameterFloat>(
             param_ids::tight, "Tight", r, 20.0f,
-            AudioParameterFloatAttributes{}.withLabel("Hz")));
+            AudioParameterFloatAttributes{}
+                .withStringFromValueFunction(hzToText)
+                .withValueFromStringFunction(textToHz)));
     }
     {
         NormalisableRange<float> r{500.0f, 20000.0f, 1.0f};
         r.setSkewForCentre(3000.0f);
         layout.add(std::make_unique<AudioParameterFloat>(
             param_ids::tone, "Tone", r, 20000.0f,
-            AudioParameterFloatAttributes{}.withLabel("Hz")));
+            AudioParameterFloatAttributes{}
+                .withStringFromValueFunction(hzToText)
+                .withValueFromStringFunction(textToHz)));
     }
 
     layout.add(std::make_unique<AudioParameterChoice>(

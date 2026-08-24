@@ -320,7 +320,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     addAndMakeVisible(normStatusLabel);
 
     knob(tightSlider);
-    tightSlider.setTextValueSuffix(" Hz");
+    tightSlider.setTextValueSuffix({});
     tightSlider.setTooltip("Pre-gain high-pass (12 dB/oct). Tightens the low end "
                            "before distortion; at 20 Hz it's effectively off.");
     tightAttachment = std::make_unique<SliderAttachment>(
@@ -328,7 +328,7 @@ Editor::Editor(Processor& p) : AudioProcessorEditor(p), processor(p)
     caption(tightCaption, "Tight");
 
     knob(toneSlider);
-    toneSlider.setTextValueSuffix(" Hz");
+    toneSlider.setTextValueSuffix({});
     toneSlider.setTooltip("Pre-gain low-pass, 6 dB/oct — like rolling off the "
                           "guitar's tone pot. Fully open = out of the path.");
     toneAttachment = std::make_unique<SliderAttachment>(
@@ -686,19 +686,18 @@ void Editor::resized()
         }
         r.removeFromBottom(4);
         // Knob row in signal order: Tight, Tone, then Drive as the hero.
-        const int smallW = juce::jmin(r.getWidth() / 4, 92);
-        auto tightCol = r.removeFromLeft(smallW);
-        auto toneCol = r.removeFromLeft(smallW);
-        auto layoutKnob = [](juce::Rectangle<int> col, juce::Label& cap, juce::Slider& sl,
-                             int knobMax) {
+        // All three share the caption line and the value-box baseline; only
+        // the knob diameters differ.
+        auto place = [](juce::Rectangle<int> col, juce::Label& cap, juce::Slider& sl,
+                        int width) {
             cap.setBounds(col.removeFromTop(16));
-            sl.setBounds(col.getWidth() > knobMax
-                             ? col.withSizeKeepingCentre(knobMax, col.getHeight())
-                             : col);
+            sl.setBounds(col.withSizeKeepingCentre(juce::jmin(width, col.getWidth()),
+                                                   col.getHeight()));
         };
-        layoutKnob(tightCol.withTrimmedTop(14), tightCaption, tightSlider, 96);
-        layoutKnob(toneCol.withTrimmedTop(14), toneCaption, toneSlider, 96);
-        layoutKnob(r, driveCaption, driveSlider, 200);
+        const int smallW = juce::jmin(r.getWidth() / 4, 100);
+        place(r.removeFromLeft(smallW), tightCaption, tightSlider, 86);
+        place(r.removeFromLeft(smallW), toneCaption, toneSlider, 86);
+        place(r, driveCaption, driveSlider, 150);
     }
 
     // CAB / IR: selector row, then toggles.
