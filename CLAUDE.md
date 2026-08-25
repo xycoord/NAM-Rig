@@ -38,8 +38,15 @@ JUCE is pinned to the 8.0.15 tag — do not bump to JUCE 9 without discussion
 8. UI stays cheap: software renderer (no OpenGL context), vectors not bitmaps,
    partial repaints, ~30 Hz meter timer stopped when the editor closes.
 
-The processor is mono-internal: average connected inputs → engine → broadcast
-to outputs.
+Signal chain (all gains smoothed, per-section bypass crossfaded):
+trim → staging meter tap → [AMP: HPF → LPF → drive → model ×lanes,
+measured-compensated] → DC blocker → [CAB IR: 1/2/4ch topologies] →
+[REVERB: parallel send → send HPF/LPF → pre-delay → convolution] →
+normalization (always on, kNormTargetDb) → out. Channels Auto/Mono/Stereo
+= dual-mono ModelPair lanes. Tuner (engine/Tuner.cpp) taps post-trim on
+its own worker. Drive compensation comes from a load-time measured rise
+curve (ModelSlot::measureRiseCurve). There is NO user output gain: staged
+input + measured drive + normalization ⇒ output ≈ bypass by construction.
 
 ## Platform notes (user's machine: Ubuntu, Wayland, PipeWire, Scarlett 2i4)
 
@@ -57,6 +64,19 @@ to outputs.
   to confirm jack vs alsa routing).
 - No `gh` CLI and no non-interactive sudo: hand `sudo apt …` commands to the
   user; GitHub access is SSH push/pull only (`git@github.com:xycoord/NAM-Rig.git`).
+
+## UI system
+
+`ui/Theme.h`: color tokens + custom LookAndFeel (embedded Barlow via
+BinaryData; flat knobs, constant 5px arcs, in-knob values). Rules: accent
+only on interactive value (LPF-style knobs set "reverseFill" — arc shows
+how much the control is DOING); green only meter-zone/in-tune; red only
+clip/error; readouts (tuner, meters) float frameless, controls live in
+titled panels; per-IR topology shows in section headers; a healthy system
+is silent — status text only when the user should act. Controls follow
+one-question-one-control: Drive is the only large knob, Trim is a fader,
+Quality is a dropdown of the model's real breakpoints. KnobSlider: drag /
+shift-fine / double-click-default / click-value-to-type.
 
 ## Style
 

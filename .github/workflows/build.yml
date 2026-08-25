@@ -22,13 +22,13 @@ jobs:
             libasound2-dev libfreetype-dev libfontconfig-dev \
             libx11-dev libxext-dev libxrandr-dev libxcursor-dev \
             libxinerama-dev libxcomposite-dev libcurl4-openssl-dev \
-            ninja-build
+            libjack-jackd2-dev ninja-build
 
       - name: Configure
         run: cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build build
+        run: cmake --build build --target NamRig_Standalone NamRig_CLAP namrig_tests
 
       - name: Test
         run: ctest --test-dir build --output-on-failure
@@ -36,7 +36,13 @@ jobs:
       - name: Upload standalone
         uses: actions/upload-artifact@v4
         with:
-          name: namrig-linux
+          name: namrig-linux-standalone
           path: build/NamRig_artefacts/Release/Standalone/
+
+      - name: Upload CLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: namrig-linux-clap
+          path: build/NamRig_artefacts/Release/CLAP/
 
   # Windows and macOS join in milestone 5 alongside the plugin formats.

@@ -48,8 +48,13 @@ Cut from v1 (all re-addable — name-keyed state means no format break):
 noise gate, tone stack, calibration system (dBu/Calibrated mode),
 directory-style models, web-link buttons.
 
-v2 horizon, rough order: reverb, tuner, backing-track player (standalone),
-gate + EQ return, gain-compensation policy, metronome.
+v2 horizon (original), updated for what already shipped early — reverb
+(DONE: parallel IR send w/ pre-delay + Abbey Road send filters), tuner
+(DONE: NSDF chromatic strip), gain-compensation policy (DONE: measured
+per-model drive compensation + always-on normalization; see below).
+Still future: backing-track player (standalone), gate return, metronome.
+Post-model EQ is likely obsolete: the pre-amp HPF/LPF shape distortion
+character, which post-EQ never could.
 
 Field note (M2): long reverb IRs already work through the IR slot —
 juce::dsp::Convolution is non-uniform partitioned. The v2 "reverb" may
@@ -60,6 +65,28 @@ Second field note: amateur reverb IRs often carry a high noise floor
 (~-44 dB observed) that plateaus/swells late in the tail and ends in an
 abrupt cut — faithfully reproduced, sounds like a bug but isn't. v2 IR
 loader should offer an optional tail fade to tame such files.
+
+## Where v1 actually landed (Aug 2026)
+
+The reactive build loop (user plays, reports friction, we fix) overtook the
+milestone order and the scope. Shipped beyond the plan:
+
+- Gain architecture (user-designed): Trim + staging meter w/ target zone
+  (-15..-6 dBFS peak, anchored to the reference DI) -> HPF/LPF pre-amp
+  filters -> Drive with MEASURED per-model compensation (load-time sweep,
+  5-pt rise curve) -> model -> cab IR -> parallel reverb send (pre-delay,
+  send HPF/LPF, stereo-widening) -> always-on normalization to
+  kNormTargetDb (bypass-level matching falls out of staging; no output
+  trim exists at all). Sections AMP/CAB/REVERB individually bypassable
+  (crossfaded; amp skip saves CPU; verb tail rings out).
+- Chromatic tuner strip (engine/Tuner.cpp, NSDF on worker thread).
+- Channel topology: Auto/Mono/Stereo dual-mono amp, cab IR 1/2/4ch
+  (quad true-stereo), per-IR resolution shown in section headers.
+- UI system: Theme.h tokens + custom LookAndFeel, embedded Barlow,
+  one-knob-per-question controls (Drive the only large knob; Trim a
+  fader; Quality a per-model-breakpoints dropdown), selector rows with
+  folder stepping, in-knob values with click-to-type, freestanding
+  meters with dB scales, presets with dirty-asterisk and reload.
 
 ## Milestones
 
@@ -74,14 +101,13 @@ loader should offer an optional tail fade to tame such files.
 3. **State** — versioned name-keyed serialization, portable paths with
    search-on-miss, standalone autosave/restore, named presets. Exit: quit and
    relaunch restores the rig exactly; presets survive a moved model folder.
-4. **UI** — real editor: file-steppers, gains, Slim, output mode, meters,
-   preset bar, resizable FlexBox layout, error surfaces. Replace JUCE's
-   audio-settings dialog with our own devices panel: friendly channel names,
-   live input level meter, in-app latency (quantum) preference. Resolve the
-   scaling question (proportional vs fixed-size + space; user leans fixed).
-   Exit: daily practice happens here and the old plugin isn't missed.
-5. **Formats** — CLAP + VST3 targets, deferred latency reporting, DAW state
-   save/restore, automation sanity; Windows + macOS join CI. Test in Reaper.
+4. **UI** — MOSTLY DONE via the reactive loop (see above). Remaining:
+   our own settings/library panel (friendly device names, live input
+   meter in the picker, in-app latency/quantum preference, library +
+   IR root locations). Scaling question resolved: fixed-size where
+   content has intrinsic size, flexible elsewhere.
+5. **Formats** — CLAP done and Reaper-tested (VST3 deferred by choice:
+   user only needs CLAP). Windows + macOS CI still pending.
 6. **Ship** — tag v1.0, install paths, README, CI artifacts for 3 platforms.
 
 ## Watchlist
