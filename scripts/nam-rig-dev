@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Dev launcher: rebuild whatever changed, then run the standalone.
+# A no-change Ninja pass takes well under a second, so this is also
+# just "the way you start the app".
+set -u
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD="$REPO/build"
+APP="$BUILD/NamRig_artefacts/Release/Standalone/NAM Rig"
+LOG="${XDG_RUNTIME_DIR:-/tmp}/nam-rig-build.log"
+
+if [ ! -d "$BUILD" ]; then
+    cmake -B "$BUILD" -S "$REPO" -G Ninja -DCMAKE_BUILD_TYPE=Release >"$LOG" 2>&1 || {
+        notify-send -u critical "NAM Rig" "Configure failed — see $LOG" 2>/dev/null
+        exit 1
+    }
+fi
+
+if ! cmake --build "$BUILD" --target NamRig_Standalone >"$LOG" 2>&1; then
+    # Launched from the desktop there's no terminal; surface the failure
+    # as a notification and keep the log for the real error.
+    notify-send -u critical "NAM Rig" "Build failed — see $LOG" 2>/dev/null
+    exit 1
+fi
+
+exec "$APP"
