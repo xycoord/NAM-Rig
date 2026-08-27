@@ -97,9 +97,11 @@ target_compile_definitions(NamRig PUBLIC
     JUCE_USE_CURL=0
     JUCE_VST3_CAN_REPLACE_VST2=0
     # JACK backend (via pipewire-jack at runtime): direct graph scheduling,
-    # lower latency than the ALSA bridge, and patchable routing.
-    JUCE_JACK=1
-    JUCE_ALSA=1
+    # lower latency than the ALSA bridge, and patchable routing. Linux-only:
+    # JACK also exists on macOS, where setting this makes JUCE look for
+    # headers we don't ship.
+    $<$<PLATFORM_ID:Linux>:JUCE_JACK=1>
+    $<$<PLATFORM_ID:Linux>:JUCE_ALSA=1>
     # Our own standalone shell (src/standalone/): native title bar,
     # input unmuted by default.
     JUCE_USE_CUSTOM_PLUGIN_STANDALONE_APP=1)

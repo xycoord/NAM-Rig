@@ -18,7 +18,8 @@ StoredPath makeStoredPath(const fs::path& file, const fs::path& root)
         std::error_code ec;
         const fs::path rel = fs::relative(file, root, ec);
         // Reject escapes ("../...") — only keep genuinely-inside paths.
-        if (!ec && !rel.empty() && rel.native().rfind("..", 0) != 0)
+        // (string(), not native(): native() is wide on Windows.)
+        if (!ec && !rel.empty() && rel.string().rfind("..", 0) != 0)
             stored.relative = rel.string();
     }
     return stored;
