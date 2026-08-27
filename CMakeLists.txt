@@ -29,7 +29,10 @@ target_include_directories(nam_core SYSTEM PUBLIC
     ${NAM_CORE_DIR})
 target_compile_definitions(nam_core PUBLIC
     NAM_SAMPLE_FLOAT
-    NAM_ENABLE_A2_FAST)
+    NAM_ENABLE_A2_FAST
+    # Keep Eigen strictly MPL2 — using one of its opt-in LGPL pieces would
+    # become a compile error instead of a silent license change.
+    EIGEN_MPL2_ONLY)
 if(WIN32)
     # The core's own CMake sets these for its targets; we compile its
     # sources ourselves, so mirror them.
@@ -45,7 +48,7 @@ add_library(adt OBJECT
 target_include_directories(adt SYSTEM PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}/libs/eigen
     ${ADT_DIR})
-target_compile_definitions(adt PUBLIC DSP_SAMPLE_FLOAT)
+target_compile_definitions(adt PUBLIC DSP_SAMPLE_FLOAT EIGEN_MPL2_ONLY)
 
 # ---- Engine (no JUCE anywhere) ----------------------------------------------
 add_library(namrig_engine STATIC

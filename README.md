@@ -21,3 +21,10 @@ cmake --build build
 
 Milestone 1: standalone shell with smoothed passthrough gain.
 The NAM engine arrives in milestone 2.
+
+## License
+
+[AGPL-3.0](LICENSE) — required by JUCE 8's open-source license option,
+and a good fit anyway. The NAM DSP core and the other bundled
+dependencies keep their own permissive licenses; see
+[THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
