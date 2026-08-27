@@ -3,6 +3,7 @@ name: Build
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
@@ -45,4 +46,67 @@ jobs:
           name: namrig-linux-clap
           path: build/NamRig_artefacts/Release/CLAP/
 
-  # Windows and macOS join in milestone 5 alongside the plugin formats.
+  # Windows/macOS: on manual trigger and version tags (macOS runners bill
+  # at 10x on private repos; Linux remains the every-push canary).
+  windows:
+    name: Windows
+    runs-on: windows-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure
+        run: cmake -B build -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build --config Release --target NamRig_Standalone NamRig_CLAP namrig_tests
+
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: namrig-windows-standalone
+          path: build/NamRig_artefacts/Release/Standalone/
+
+      - name: Upload CLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: namrig-windows-clap
+          path: build/NamRig_artefacts/Release/CLAP/
+
+  macos:
+    name: macOS
+    runs-on: macos-latest
+    if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Configure (universal binary)
+        run: >
+          cmake -B build -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+          -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+
+      - name: Build
+        run: cmake --build build --target NamRig_Standalone NamRig_CLAP namrig_tests
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Upload standalone
+        uses: actions/upload-artifact@v4
+        with:
+          name: namrig-macos-standalone
+          path: build/NamRig_artefacts/Release/Standalone/
+
+      - name: Upload CLAP
+        uses: actions/upload-artifact@v4
+        with:
+          name: namrig-macos-clap
+          path: build/NamRig_artefacts/Release/CLAP/

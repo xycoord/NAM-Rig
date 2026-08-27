@@ -30,6 +30,11 @@ target_include_directories(nam_core SYSTEM PUBLIC
 target_compile_definitions(nam_core PUBLIC
     NAM_SAMPLE_FLOAT
     NAM_ENABLE_A2_FAST)
+if(WIN32)
+    # The core's own CMake sets these for its targets; we compile its
+    # sources ourselves, so mirror them.
+    target_compile_definitions(nam_core PUBLIC NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 
 # Note: ImpulseResponse.cpp/wav.cpp are NOT compiled — they hardcode double
 # and break with DSP_SAMPLE=float. IR convolution uses juce::dsp::Convolution
@@ -141,7 +146,8 @@ if(NAMRIG_BUILD_TESTS)
     target_include_directories(namrig_tests PRIVATE src)
     target_link_libraries(namrig_tests PRIVATE namrig_engine nam_core adt Catch2::Catch2WithMain)
     target_compile_definitions(namrig_tests PRIVATE
-        NAMRIG_TEST_MODELS_DIR="${NAM_CORE_DIR}/example_models")
+        NAMRIG_TEST_MODELS_DIR="${NAM_CORE_DIR}/example_models"
+        _USE_MATH_DEFINES) # M_PI on MSVC
 
     enable_testing()
     add_test(NAME namrig_tests COMMAND namrig_tests)
