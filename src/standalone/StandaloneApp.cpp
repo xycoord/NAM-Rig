@@ -70,8 +70,12 @@ public:
         setenv("PIPEWIRE_QUANTUM", "64/48000", 0);
 #endif
 
+        // takeOwnershipOfSettings MUST be false: the PropertiesFile belongs
+        // to appProperties. The parameter defaults to true, which makes the
+        // holder delete it on window close and the ApplicationProperties
+        // destructor delete it again — shutdown segfault, lost settings.
         auto holder = std::make_unique<juce::StandalonePluginHolder>(
-            appProperties.getUserSettings());
+            appProperties.getUserSettings(), /*takeOwnershipOfSettings*/ false);
 
         // Default to JACK (via pipewire-jack) when the user has no saved
         // audio setup: direct graph scheduling beats the ALSA bridge for
